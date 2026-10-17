@@ -1,0 +1,24 @@
+# C5: TIN/NPI → Practice Address Pipeline
+# Core data processing
+pandas==2.2.3
+openpyxl==3.1.5
+pyarrow==17.0.0
+
+# Large file processing
+duckdb==1.5.6
+ijson==3.6.0
+
+# Address parsing and linkage
+usaddress==0.5.10
+rapidfuzz==3.10.1
+
+# Geocoding
+requests==2.32.3
+
+# Utilities
+tqdm==4.67.1
+python-dotenv==1.0.1
+pyyaml>=6.0
+pytest>=8.0.0
+google-genai==2.31.0
+beautifulsoup4==4.15.0

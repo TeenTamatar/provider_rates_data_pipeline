@@ -1,0 +1,39 @@
+# Environments & Secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# Data directories, large files & symlinks
+Data
+Data/
+.download_cache/
+rate_files/
+*.zip
+*.parquet
+*.xlsx
+*.tmp
+
+# Symlinks to other repos / handoff
+hilabs-provider-rates
+handoff
+
+# Pipeline output
+output/
+output/*
+outputs/
+
+# Logs & temp files
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,106 @@
+# config/c5.yaml  – C5 Address Mapping configuration
+# All thresholds, weights, and paths live here.
+# A snapshot of this file (with its SHA-256 hash) is written into every output.
+
+# ── Scope ────────────────────────────────────────────────────────────────────
+state: CA
+target_rate_file: healthnet-ca        # Only Health Net CA group plans are in scope
+
+# ── Run metadata (set at runtime; stored in snapshot) ────────────────────────
+run_date: null                        # Filled in at run start (YYYY-MM-DD)
+random_seed: 42
+
+# ── Freshness / staleness ─────────────────────────────────────────────────────
+fresh_months: 24                      # Newest source must be ≤ this many months old to count as fresh
+stale_distance_km: 100                # An NPPES address > this km from all current TIN sites is stale
+
+# ── TIN-site rules ────────────────────────────────────────────────────────────
+small_tin_max_npis: 10                # TINs with ≤ this many NPIs are "small" (TIN sites fill gaps)
+tin_group_overlap_min: 0.5            # Min fraction of TIN NPIs that must appear in a Medicare group
+site_consensus_min_npis: 2            # Min NPIs at a site for it to enter the TIN site set
+
+# ── Labelling rules ───────────────────────────────────────────────────────────
+verified_min_independent_families: 2  # Need at least this many independent families for verified
+
+# ── LLM (Gemini Backend) ──────────────────────────────────────────────────────
+llm_enabled: true
+llm_provider: gemini
+llm_model: gemini-2.5-flash
+llm_temperature: 0
+llm_call_cap: 1000
+llm_max_retries: 3
+llm_requests_per_minute: 15
+llm_timeout_seconds: 60
+llm_cache_dir: output/c5/llm_cache
+gemini_api_key_env: GEMINI_API_KEY
+
+# ── Web Fetcher ───────────────────────────────────────────────────────────────
+web_fetch_enabled: true
+web_fetch_allowlist: []                # Empty by default; human adds allowlisted domains
+web_fetch_domain_family:               # Map of domain -> source family
+  healthnet.com: payer
+  centene.com: payer
+  sutterhealth.org: web
+  kp.org: web
+  doximity.com: web_aggregator
+  healthgrades.com: web_aggregator
+  vitals.com: web_aggregator
+web_fetch_respect_robots: true
+web_fetch_requests_per_minute: 20
+web_fetch_max_bytes: 2000000           # 2 MB max size
+web_fetch_cache_dir: output/c5/web_cache
+
+# ── Score weights (transparent additive sum; tune in WP8 calibration) ─────────
+score_weights:
+  w_families:  0.40   # Independent source families that agree on site
+  w_tin_fit:   0.25   # Site is in TIN's validated site set
+  w_freshness: 0.20   # How recent is the newest supporting source
+  w_geocode:   0.05   # Census geocoder matched (1) vs not (0)
+  w_county:    0.05   # Address county matches TIN county label
+  w_in_state:  0.05   # Address is in target state (CA)
+
+# ── Source families (do not add to this without updating LOGIC.md) ─────────────
+# Only different families count as independent evidence.
+# Note: web_aggregator never counts as independent of nppes_self.
+source_families:
+  nppes_self:      [nppes_primary, nppes_secondary, nppes_endpoint]
+  nppes_org:       [nppes_org_primary, nppes_org_secondary]
+  medicare:        [cms_dac]
+  payer:           [payer_directory]
+  web:             [org_website]
+  web_aggregator:  [aggregator_directory]
+
+# ── Geocoder ─────────────────────────────────────────────────────────────────
+geocode_batch_size: 9000              # Census batch limit is 10,000 rows / 5 MB; stay under
+geocode_benchmark: Public_AR_Current  # Census benchmark name
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+paths:
+  # Inputs
+  targets:        ../hilabs-provider-rates/handoff/data/rate_file_providers.csv
+  nppes_main:     ../Data/NPPES_Data_Dissemination_October_2026_V2/npidata_pfile_20050523-20261011.csv
+  nppes_pl:       ../Data/NPPES_Data_Dissemination_October_2026_V2/pl_pfile_20050523-20261011.csv
+  nppes_ep:       ../Data/NPPES_Data_Dissemination_October_2026_V2/endpoint_pfile_20050523-20261011.csv
+  nppes_deact:    ../Data/NPPES Deactivated NPI Report 20261012.xlsx
+  cms_dac:        ../Data/DAC_NationalDownloadableFile.csv
+  nucc_taxonomy:  ../Data/nucc_taxonomy_261.csv
+
+  # Intermediate (Parquet)
+  c5_targets:     output/c5/c5_targets.parquet
+  c5_claims:      output/c5/c5_claims.parquet
+  c5_sites:       output/c5/c5_sites.parquet
+  c5_tin_sites:   output/c5/c5_tin_sites.parquet
+  c5_candidates:  output/c5/c5_candidates.parquet
+  c5_stale:       output/c5/c5_stale_claims.parquet
+
+  # Outputs
+  c5_addresses:   output/c5/c5_addresses.csv
+  c5_leftovers:   output/c5/c5_leftovers.csv
+  c5_summary:     output/c5/c5_summary.json
+  c5_sample:      output/c5/c5_calibration_sample.csv
+  c5_lookup_log:  output/c5/c5_lookup_log.csv
+  c5_llm_log:     output/c5/c5_llm_log.csv
+  prompt_template: prompts/c5_extract_v1.txt
+  geocode_cache:  output/c5/geocode_cache.parquet
+  config_snapshot: output/c5/c5_config_snapshot.yaml
+  sources_manifest: output/c5/c5_sources_manifest.json
