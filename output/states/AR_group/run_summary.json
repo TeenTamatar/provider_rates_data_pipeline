@@ -1,0 +1,33 @@
+{
+  "run_at_utc": "2026-10-18T12:12:55+00:00",
+  "state": "AR",
+  "market": "group",
+  "steps": [
+    {
+      "step": "c1_filter",
+      "plans": 307,
+      "output": "output\\states\\AR_group\\c1_plans_state.csv"
+    },
+    {
+      "step": "c2a_classify",
+      "rc": 0,
+      "out_dir": "output\\states\\AR_group\\c2a"
+    },
+    {
+      "step": "c2_evidence",
+      "rc": 0,
+      "out_dir": "output\\states\\AR_group\\c2_evidence"
+    },
+    {
+      "step": "c2_merge",
+      "rc": 0,
+      "out_dir": "output\\states\\AR_group\\c2"
+    }
+  ],
+  "outputs": {
+    "network_table": "output\\states\\AR_group\\c2\\c2_plans_network.csv",
+    "state_profile": "output\\states\\AR_group\\docs\\state_profiles\\AR.md",
+    "evidence_resolved": "output\\states\\AR_group\\c2_evidence\\c2_evidence_resolved.csv",
+    "evidence_unresolved": "output\\states\\AR_group\\c2_evidence\\c2_evidence_unresolved.csv"
+  }
+}

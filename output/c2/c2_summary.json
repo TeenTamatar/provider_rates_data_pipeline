@@ -1,0 +1,122 @@
+{
+  "run_at_utc": "2026-10-18T12:14:00+00:00",
+  "total_plans": 3214,
+  "by_network_type": {
+    "unknown": 1570,
+    "PPO": 720,
+    "HMO": 623,
+    "HMO+SAL": 163,
+    "EOA": 127,
+    "POS": 7,
+    "SAL": 4
+  },
+  "strict_ppo": 720,
+  "inclusive_ppo_plus_unknown": 2290,
+  "states_profiled": 30,
+  "profiles_written_to": "docs\\state_profiles",
+  "network_table": "output\\c2\\c2_plans_network.csv",
+  "by_state": {
+    "AL": {
+      "unknown": 19
+    },
+    "AR": {
+      "unknown": 246,
+      "PPO": 135,
+      "POS": 1
+    },
+    "AZ": {
+      "unknown": 45
+    },
+    "CA": {
+      "HMO": 583,
+      "PPO": 487,
+      "HMO+SAL": 163,
+      "EOA": 127,
+      "POS": 6,
+      "SAL": 4
+    },
+    "DE": {
+      "unknown": 19
+    },
+    "FL": {
+      "unknown": 53
+    },
+    "GA": {
+      "HMO": 40,
+      "unknown": 30
+    },
+    "IA": {
+      "unknown": 17
+    },
+    "IL": {
+      "unknown": 18
+    },
+    "IN": {
+      "unknown": 49,
+      "PPO": 30
+    },
+    "KS": {
+      "unknown": 43
+    },
+    "KY": {
+      "unknown": 23
+    },
+    "LA": {
+      "unknown": 17
+    },
+    "MI": {
+      "unknown": 21
+    },
+    "MO": {
+      "unknown": 43,
+      "PPO": 26
+    },
+    "MS": {
+      "unknown": 45
+    },
+    "NC": {
+      "unknown": 40
+    },
+    "NE": {
+      "unknown": 45
+    },
+    "NH": {
+      "unknown": 10
+    },
+    "NJ": {
+      "unknown": 8
+    },
+    "NV": {
+      "unknown": 36
+    },
+    "NY": {
+      "unknown": 94
+    },
+    "OH": {
+      "unknown": 49
+    },
+    "OK": {
+      "PPO": 26,
+      "unknown": 21
+    },
+    "OR": {
+      "unknown": 365,
+      "PPO": 16
+    },
+    "PA": {
+      "unknown": 20
+    },
+    "SC": {
+      "unknown": 48
+    },
+    "TN": {
+      "unknown": 52
+    },
+    "TX": {
+      "unknown": 81
+    },
+    "WA": {
+      "unknown": 13
+    }
+  }
+}

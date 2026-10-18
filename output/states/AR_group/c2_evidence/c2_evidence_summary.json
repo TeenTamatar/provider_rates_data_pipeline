@@ -1,0 +1,21 @@
+{
+  "run_at_utc": "2026-10-18T12:12:55+00:00",
+  "input_plans": 171,
+  "resolved": 0,
+  "still_unknown": 171,
+  "by_evidence_type": {
+    "cms_plan_attributes": 0,
+    "sbc_document": 0,
+    "model_fallback": 0,
+    "unknown": 171
+  },
+  "cms_plan_attributes_loaded": 0,
+  "sbc_patterns_loaded": [],
+  "no_fetch": true,
+  "needs_source": [],
+  "open_questions": [
+    "Q9: What is the SBC URL pattern per payer (ambetter, fidelis, healthnet, qualchoice)?",
+    "Q10: May provider directories be scraped?",
+    "Q14: Excel row limit handling for the final file?"
+  ]
+}

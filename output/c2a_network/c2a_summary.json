@@ -1,0 +1,121 @@
+{
+  "plans": 3214,
+  "by_network_type": {
+    "unknown": 1570,
+    "PPO": 720,
+    "HMO": 623,
+    "HMO+SAL": 163,
+    "EOA": 127,
+    "POS": 7,
+    "SAL": 4
+  },
+  "ppo": 720,
+  "non_ppo": 924,
+  "unknown": 1570,
+  "conflicts": 0,
+  "by_state": {
+    "AL": {
+      "unknown": 19
+    },
+    "AR": {
+      "unknown": 246,
+      "PPO": 135,
+      "POS": 1
+    },
+    "AZ": {
+      "unknown": 45
+    },
+    "CA": {
+      "PPO": 487,
+      "HMO": 583,
+      "HMO+SAL": 163,
+      "EOA": 127,
+      "SAL": 4,
+      "POS": 6
+    },
+    "DE": {
+      "unknown": 19
+    },
+    "FL": {
+      "unknown": 53
+    },
+    "GA": {
+      "HMO": 40,
+      "unknown": 30
+    },
+    "IA": {
+      "unknown": 17
+    },
+    "IL": {
+      "unknown": 18
+    },
+    "IN": {
+      "unknown": 49,
+      "PPO": 30
+    },
+    "KS": {
+      "unknown": 43
+    },
+    "KY": {
+      "unknown": 23
+    },
+    "LA": {
+      "unknown": 17
+    },
+    "MI": {
+      "unknown": 21
+    },
+    "MO": {
+      "unknown": 43,
+      "PPO": 26
+    },
+    "MS": {
+      "unknown": 45
+    },
+    "NC": {
+      "unknown": 40
+    },
+    "NE": {
+      "unknown": 45
+    },
+    "NH": {
+      "unknown": 10
+    },
+    "NJ": {
+      "unknown": 8
+    },
+    "NV": {
+      "unknown": 36
+    },
+    "NY": {
+      "unknown": 94
+    },
+    "OH": {
+      "unknown": 49
+    },
+    "OK": {
+      "unknown": 21,
+      "PPO": 26
+    },
+    "OR": {
+      "unknown": 365,
+      "PPO": 16
+    },
+    "PA": {
+      "unknown": 20
+    },
+    "SC": {
+      "unknown": 48
+    },
+    "TN": {
+      "unknown": 52
+    },
+    "TX": {
+      "unknown": 81
+    },
+    "WA": {
+      "unknown": 13
+    }
+  },
+  "reconciles": true
+}

@@ -1,0 +1,30 @@
+{
+  "_comment": "Payer config for Centene brands. All payer-specific values live here.",
+
+  "index_urls": {
+    "ambetter":   "https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-09-28_ambetter_index.json",
+    "fidelis":    "https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-09-28_fidelis_index.json",
+    "qualchoice": "https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-09-28_qualchoice_index.json",
+    "healthnet":  "https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-09-30_healthnet_index.json"
+  },
+
+  "plan_codes": {
+    "EOA": {"network_type": "EOA",  "is_ppo": false, "source": "Health Net Elect Open Access plan documents"},
+    "SAL": {"network_type": "SAL",  "is_ppo": false, "source": "Health Net Salud HMO y Mas plan documents"}
+  },
+
+  "_sbc_url_patterns_comment": "Ask the user for the real SBC URL pattern per payer. Do not invent hosts.",
+  "sbc_url_patterns": {},
+
+  "rate_limits": {
+    "fetch_delay_s": 1.0,
+    "fetch_timeout_s": 30,
+    "max_pdf_bytes": 10485760
+  },
+
+  "plan_year": 2026,
+
+  "known_dead_urls": [
+    "https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-09-28_centene-management-company-llc_qualchoice_in-network.json"
+  ]
+}

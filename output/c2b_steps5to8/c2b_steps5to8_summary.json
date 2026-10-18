@@ -1,0 +1,62 @@
+{
+  "run_at_utc": "2026-10-18T12:31:54+00:00",
+  "input_rows": 50933,
+  "copy_status_note": "stored copy_status = within-provider-group scope (step 4). parallel_contract_status = cross-group scope (this step 5). The two are independent and intentionally different.",
+  "step5_parallel_contract": {
+    "identical_copies": {
+      "rows": 31207,
+      "keys": 10923
+    },
+    "single": {
+      "rows": 15260,
+      "keys": 15260
+    },
+    "differing_copies": {
+      "rows": 4466,
+      "keys": 1382
+    }
+  },
+  "step6_resolve": {
+    "ambiguous_no_ppo_group": {
+      "rows": 4456,
+      "keys": 1377
+    },
+    "ambiguous_multiple_ppo_rates": {
+      "rows": 10,
+      "keys": 5
+    }
+  },
+  "step7_labels": {
+    "shared_contract|shared|medium": {
+      "rows": 31205,
+      "keys": 10922
+    },
+    "single|unknown|low": {
+      "rows": 14737,
+      "keys": 14737
+    },
+    "ambiguous|ambiguous|low": {
+      "rows": 4466,
+      "keys": 0
+    },
+    "direct_ffs|PPO|high": {
+      "rows": 343,
+      "keys": 342
+    },
+    "business_name_ppo|PPO|high": {
+      "rows": 182,
+      "keys": 182
+    }
+  },
+  "step7_strict_ppo_keys": 524,
+  "step7_inclusive_keys": 11446,
+  "step8_threshold": {
+    "threshold_pct": 80,
+    "rationale": "80% means the dominant contract is identified; remaining 20% is within expected TiC data noise",
+    "confident_tins": 502,
+    "total_tins": 3332,
+    "median_pct_confident": 0.0
+  },
+  "arkansas_note": "307 group plans identified; rate file returned 404 (QualChoice file absent from Centene CDN). No rate extraction possible. 80+ URL probes exhausted.",
+  "oregon_note": "381 group plans (16 PPO, 365 unknown). Plan names are employer names; name-keyword rules cannot classify them. Rate file reachable (HealthNet-OR, 8.6 MB). Strict PPO=16, inclusive=381. Decision deferred until after California."
+}

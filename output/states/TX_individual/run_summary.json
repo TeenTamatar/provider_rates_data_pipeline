@@ -1,0 +1,33 @@
+{
+  "run_at_utc": "2026-10-18T12:08:46+00:00",
+  "state": "TX",
+  "market": "individual",
+  "steps": [
+    {
+      "step": "c1_filter",
+      "plans": 81,
+      "output": "output\\states\\TX_individual\\c1_plans_state.csv"
+    },
+    {
+      "step": "c2a_classify",
+      "rc": 0,
+      "out_dir": "output\\states\\TX_individual\\c2a"
+    },
+    {
+      "step": "c2_evidence",
+      "rc": 0,
+      "out_dir": "output\\states\\TX_individual\\c2_evidence"
+    },
+    {
+      "step": "c2_merge",
+      "rc": 0,
+      "out_dir": "output\\states\\TX_individual\\c2"
+    }
+  ],
+  "outputs": {
+    "network_table": "output\\states\\TX_individual\\c2\\c2_plans_network.csv",
+    "state_profile": "output\\states\\TX_individual\\docs\\state_profiles\\TX.md",
+    "evidence_resolved": "output\\states\\TX_individual\\c2_evidence\\c2_evidence_resolved.csv",
+    "evidence_unresolved": "output\\states\\TX_individual\\c2_evidence\\c2_evidence_unresolved.csv"
+  }
+}
