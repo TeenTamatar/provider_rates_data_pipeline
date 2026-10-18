@@ -547,3 +547,246 @@ def test_gemini_backend_mocked_responses(tmp_path):
     addrs_cap, log_cap = extractor.extract_addresses("Cap Provider", "95-0000000", "Text")
     assert len(addrs_cap) == 0
     assert log_cap["reason_code"] == "call_cap_reached"
+
+
+# ── 13. Tiered Extraction & Domain Probe Unit Tests ──────────────────────────
+def test_subdomain_matching_and_redirects():
+    from pipeline.c5.page_fetcher import is_allowed_domain
+
+    allowlist = ["healthnet.com", "search.dca.ca.gov"]
+
+    # Subdomain matching enabled
+    assert is_allowed_domain("https://www.healthnet.com/doc", allowlist, match_subdomains=True) is True
+    assert is_allowed_domain("https://sub.search.dca.ca.gov/search", allowlist, match_subdomains=True) is True
+    assert is_allowed_domain("https://unauthorized.com/doc", allowlist, match_subdomains=True) is False
+
+    # Subdomain matching disabled
+    assert is_allowed_domain("https://www.healthnet.com/doc", allowlist, match_subdomains=False) is False
+    assert is_allowed_domain("https://healthnet.com/doc", allowlist, match_subdomains=False) is True
+
+
+def test_probe_outcomes_and_gate(tmp_path, monkeypatch):
+    from pipeline.c5.page_fetcher import PageFetcher, probe_single_url, run_domain_probe
+
+    cfg = {
+        "web_fetch_enabled": True,
+        "web_fetch_allowlist": ["healthnet.com", "faildomain.com"],
+        "web_fetch_match_subdomains": True,
+        "probe_urls": {
+            "healthnet.com": ["https://healthnet.com/doc1", "https://healthnet.com/doc2"],
+            "faildomain.com": ["https://faildomain.com/bad"],
+        },
+        "probe_min_ok_share": 0.5,
+        "paths": {"c5_domain_probe": str(tmp_path / "probe.csv")},
+    }
+
+    # Mock responses for probe_single_url
+    def mock_probe_single_url(url, fetcher):
+        if "bad" in url:
+            return "login_or_bot_block", "CAPTCHA detected"
+        return "ok", "Readable text containing address pattern"
+
+    monkeypatch.setattr("pipeline.c5.page_fetcher.probe_single_url", mock_probe_single_url)
+    fetcher = PageFetcher(cfg)
+    df_probe, domain_status, unprobed = run_domain_probe(cfg, fetcher)
+
+    assert domain_status["healthnet.com"] == "passed"
+    assert domain_status["faildomain.com"] == "disabled_by_probe"
+    assert len(unprobed) == 0
+    assert Path(tmp_path / "probe.csv").is_file()
+
+
+def test_unprobed_domain_instructions(tmp_path):
+    from pipeline.c5.page_fetcher import run_domain_probe
+
+    cfg = {
+        "web_fetch_enabled": True,
+        "web_fetch_allowlist": ["healthnet.com", "search.dca.ca.gov"],
+        "probe_urls": {},  # empty probe_urls
+        "probe_min_ok_share": 0.5,
+        "paths": {"c5_domain_probe": str(tmp_path / "probe.csv")},
+    }
+    df_probe, domain_status, unprobed = run_domain_probe(cfg)
+    assert set(unprobed) == {"healthnet.com", "search.dca.ca.gov"}
+    assert domain_status["healthnet.com"] == "unprobed"
+    assert df_probe[df_probe["status"] == "unprobed"].shape[0] == 2
+
+
+def test_template_filling_and_search_disabled():
+    from pipeline.c5.wp7_leftovers import apply_url_templates
+
+    templates = {
+        "npi_lookup": "https://healthnet.com/provider/{npi}",
+        "slug_lookup": "https://healthnet.com/find/{city_slug}/{name_slug}",
+        "missing_ph": "https://healthnet.com/{missing_placeholder}/{npi}",
+    }
+
+    # 1. Complete row
+    row_full = {
+        "npi": "1234567890",
+        "tin": "95-1234567",
+        "business_name": "Jane Smith MD",
+        "city": "Sacramento",
+        "zip5": "95814",
+    }
+    urls = apply_url_templates(templates, row_full)
+    assert "https://healthnet.com/provider/1234567890" in urls
+    assert "https://healthnet.com/find/sacramento/jane-smith-md" in urls
+    # Missing placeholder is skipped
+    assert not any("missing_placeholder" in u for u in urls)
+
+    # 2. Missing city skips slug_lookup template
+    row_no_city = dict(row_full, city="")
+    urls_no_city = apply_url_templates(templates, row_no_city)
+    assert "https://healthnet.com/provider/1234567890" in urls_no_city
+    assert not any("find" in u for u in urls_no_city)
+
+
+def test_tier0_confirm_and_proximity():
+    from pipeline.c5.wp7_leftovers import tier0_confirm_target
+
+    cand = {"address_line": "1200 K Street", "city": "Sacramento", "zip5": "95814"}
+
+    # Target name nearby -> Match
+    page_near = "Dr. Jane Smith welcomes patients to our downtown Sacramento clinic located at 1200 K Street, Suite 300, 95814."
+    matched, quote = tier0_confirm_target(page_near, cand, "Jane Smith", proximity_chars=400)
+    assert matched is True
+
+    # Target name far away (>400 chars) -> No match
+    filler = "A" * 600
+    page_far = f"Dr. Jane Smith {filler} Clinic address is 1200 K Street, Sacramento, 95814."
+    matched_far, _ = tier0_confirm_target(page_far, cand, "Jane Smith", proximity_chars=400)
+    assert matched_far is False
+
+
+def test_tier1_structured_extraction():
+    from pipeline.c5.wp7_leftovers import tier1_structured_extract
+
+    html = """
+    <html>
+      <head>
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "Physician",
+          "name": "Dr. Sarah Lee",
+          "address": {
+            "@type": "PostalAddress",
+            "streetAddress": "450 Sutter St",
+            "addressLocality": "San Francisco",
+            "addressRegion": "CA",
+            "postalCode": "94108"
+          }
+        }
+        </script>
+      </head>
+      <body>
+        <address>
+          1200 Market Street, San Francisco, CA 94102
+        </address>
+      </body>
+    </html>
+    """
+    addrs = tier1_structured_extract(html)
+    assert len(addrs) >= 2
+    types = [a["source_type"] for a in addrs]
+    assert "json_ld" in types
+    assert "address_tag" in types
+    assert any("450 Sutter St" in a["street"] for a in addrs)
+    assert any("1200 Market Street" in a["street"] for a in addrs)
+
+
+def test_validation_fields_in_quote_and_proximity():
+    from pipeline.c5.wp7_leftovers import validate_extracted_address_tiered
+
+    page_text = "Welcome to Sutter Health. Dr. John Davis practices at 800 J Street, Sacramento, CA 95814."
+
+    # Valid item
+    item_valid = {
+        "street": "800 J Street",
+        "unit": "",
+        "city": "Sacramento",
+        "state": "CA",
+        "zip": "95814",
+        "quote": "800 J Street, Sacramento, CA 95814",
+    }
+    valid, reason = validate_extracted_address_tiered(page_text, item_valid, "John Davis")
+    assert valid is True
+
+    # Fields not in quote
+    item_bad_fields = dict(item_valid, street="999 Elm St")
+    valid_bf, reason_bf = validate_extracted_address_tiered(page_text, item_bad_fields, "John Davis")
+    assert valid_bf is False
+    assert reason_bf == "fields_not_in_quote"
+
+    # Name not near address
+    page_far = "Dr. John Davis " + ("word " * 200) + "Practices at 800 J Street, Sacramento, CA 95814."
+    valid_far, reason_far = validate_extracted_address_tiered(page_far, item_valid, "John Davis", proximity_chars=200)
+    assert valid_far is False
+    assert reason_far == "name_not_near_address"
+
+
+def test_gemini_batched_tier2_and_unknown_key(tmp_path):
+    from pipeline.c5.gemini_client import GeminiExtractor
+
+    cfg = {
+        "llm_enabled": True,
+        "llm_provider": "gemini",
+        "llm_model": "gemini-2.5-flash",
+        "llm_call_cap": 5,
+        "llm_max_input_chars": 6000,
+        "llm_cache_dir": str(tmp_path / "llm_cache"),
+        "paths": {"prompt_template_v2": "prompts/c5_extract_v2.txt"},
+    }
+
+    class MockBatchModels:
+        def generate_content(self, model, contents, config):
+            class Response:
+                text = json.dumps([
+                    {
+                        "target_key": "95-100:10001",
+                        "provider_match": "Dr. Alice",
+                        "street": "100 Pine St",
+                        "unit": "",
+                        "city": "San Francisco",
+                        "state": "CA",
+                        "zip": "94111",
+                        "quote": "Dr. Alice at 100 Pine St, San Francisco, CA 94111",
+                    },
+                    {
+                        "target_key": "UNKNOWN_KEY_999",  # Should be rejected
+                        "provider_match": "Dr. Bob",
+                        "street": "200 Pine St",
+                        "unit": "",
+                        "city": "San Francisco",
+                        "state": "CA",
+                        "zip": "94111",
+                        "quote": "Dr. Bob at 200 Pine St",
+                    },
+                ])
+                usage_metadata = type("Usage", (), {"total_token_count": 250})()
+            return Response()
+
+    mock_client = type("Client", (), {"models": MockBatchModels()})()
+    extractor = GeminiExtractor(cfg, client=mock_client)
+
+    targets = [
+        {"target_key": "95-100:10001", "name": "Alice", "entity_type": "individual"},
+        {"target_key": "95-100:10002", "name": "Charlie", "entity_type": "individual"},
+    ]
+    addrs, log_entry = extractor.extract_batched_addresses(targets, "Sample trimmed text", "hash123")
+    assert len(addrs) == 1
+    assert addrs[0]["target_key"] == "95-100:10001"
+    assert log_entry["status"] == "accepted"
+
+
+def test_web_claim_never_verifies_alone(tmp_path):
+    from pipeline.c5.common import count_independent_families
+
+    # web alone -> 1 family (cannot reach verified threshold of 2)
+    assert count_independent_families(["web"]) == 1
+    assert count_independent_families(["web_aggregator"]) == 1
+    # web + nppes_self -> 2 families
+    assert count_independent_families(["web", "nppes_self"]) == 2
+    # web_aggregator + nppes_self -> 1 family (aggregator not independent of nppes)
+    assert count_independent_families(["web_aggregator", "nppes_self"]) == 1

@@ -103,7 +103,20 @@ def run_wp1(cfg: dict) -> pd.DataFrame:
     # Deduplicate TIN-NPI (keep one row; business_name from first occurrence)
     raw = raw.drop_duplicates(subset=["tin", "npi"])
 
-    log.info(f"Raw pairs ({rate_file}): {len(raw):,}  NPIs: {raw.npi.nunique():,}  TINs: {raw.tin.nunique():,}")
+    # Reconcile against C2b PPO rates (C2b step 6 strict PPO targets)
+    c2b_file = cfg.get("paths", {}).get("c2b_ppo_rates")
+    if c2b_file and Path(c2b_file).is_file():
+        log.info(f"Reconciling targets against C2b PPO rates: {c2b_file}")
+        if str(c2b_file).endswith(".parquet"):
+            c2b_df = pd.read_parquet(c2b_file)
+        else:
+            c2b_df = pd.read_csv(c2b_file, dtype=str)
+        c2b_pairs = set(zip(c2b_df["tin"].apply(fmt_tin), c2b_df["npi"].apply(fmt_npi)))
+        initial_len = len(raw)
+        raw = raw[raw.apply(lambda r: (r["tin"], r["npi"]) in c2b_pairs, axis=1)].copy()
+        log.info(f"Reconciled from {initial_len:,} to {len(raw):,} pairs ({raw.npi.nunique():,} NPIs, {raw.tin.nunique():,} TINs)")
+
+    log.info(f"Target pairs ({rate_file}): {len(raw):,}  NPIs: {raw.npi.nunique():,}  TINs: {raw.tin.nunique():,}")
 
     # --- County label ---
     raw["county_label"] = raw["business_name"].apply(extract_county_label)
@@ -152,14 +165,14 @@ def run_wp1(cfg: dict) -> pd.DataFrame:
     log.info(f"  county labels found: {(result.county_label != '').sum():,}")
     log.info(f"  deactivated NPIs: {n_deact}")
 
-    # Expected size check (from prompt: ~3,780 pairs, 3,735 NPIs, 2,888 TINs)
+    # Expected size check (reconciled against C2b PPO rates: 3,729 pairs, 3,685 NPIs, 2,849 TINs)
     npis_actual = result["npi"].nunique()
     tins_actual = result["tin"].nunique()
-    if abs(len(result) - 3780) > 50:
-        log.warning(f"Pair count {len(result)} differs significantly from expected ~3,780")
-    if abs(npis_actual - 3735) > 50:
-        log.warning(f"NPI count {npis_actual} differs from expected ~3,735")
-    if abs(tins_actual - 2888) > 50:
-        log.warning(f"TIN count {tins_actual} differs from expected ~2,888")
+    if abs(len(result) - 3729) > 50:
+        log.warning(f"Pair count {len(result)} differs significantly from expected ~3,729")
+    if abs(npis_actual - 3685) > 50:
+        log.warning(f"NPI count {npis_actual} differs from expected ~3,685")
+    if abs(tins_actual - 2849) > 50:
+        log.warning(f"TIN count {tins_actual} differs from expected ~2,849")
 
     return result

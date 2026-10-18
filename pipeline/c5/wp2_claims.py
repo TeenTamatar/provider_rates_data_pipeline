@@ -212,6 +212,7 @@ def run_wp2(cfg: dict, targets: pd.DataFrame) -> pd.DataFrame:
         log.info(f"    → {len(df):,} rows")
         parts.append(df)
 
+    parts = [part.dropna(how="all", axis=1) for part in parts if not part.empty]
     if not parts:
         log.error("No claim sources available. Cannot proceed.")
         return pd.DataFrame(columns=SCHEMA_CLAIMS)

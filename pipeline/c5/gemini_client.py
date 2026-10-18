@@ -41,6 +41,17 @@ class ExtractedAddress(pydantic.BaseModel):
     quote: str
 
 
+class BatchedExtractedAddress(pydantic.BaseModel):
+    target_key: str
+    provider_match: Optional[str] = None
+    street: str
+    unit: str = ""
+    city: str
+    state: str
+    zip: str
+    quote: str
+
+
 class GeminiExtractor:
     """Pluggable Gemini model backend for structured address extraction."""
 
@@ -53,11 +64,12 @@ class GeminiExtractor:
 
         self.model = str(cfg.get("llm_model", "gemini-2.5-flash"))
         self.temperature = float(cfg.get("llm_temperature", 0.0))
-        self.call_cap = int(cfg.get("llm_call_cap", 1000))
+        self.call_cap = int(cfg.get("llm_call_cap", 300))
         self.max_retries = int(cfg.get("llm_max_retries", 3))
         self.rpm = int(cfg.get("llm_requests_per_minute", 15))
         self.delay_between_calls = 60.0 / max(self.rpm, 1)
         self.timeout = int(cfg.get("llm_timeout_seconds", 60))
+        self.max_input_chars = int(cfg.get("llm_max_input_chars", 6000))
 
         self.cache_dir = Path(cfg.get("llm_cache_dir", "output/c5/llm_cache"))
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -66,12 +78,21 @@ class GeminiExtractor:
         self.retries_count = 0
         self.last_call_time = 0.0
 
-        # Load prompt template
+        # Load prompt templates
         prompt_path = cfg.get("paths", {}).get("prompt_template", "prompts/c5_extract_v1.txt")
         if not Path(prompt_path).is_file():
             prompt_path = Path(__file__).parent.parent.parent / "prompts" / "c5_extract_v1.txt"
         with open(prompt_path, "r", encoding="utf-8") as f:
             self.prompt_template = f.read()
+
+        prompt_v2_path = cfg.get("paths", {}).get("prompt_template_v2", "prompts/c5_extract_v2.txt")
+        if not Path(prompt_v2_path).is_file():
+            prompt_v2_path = Path(__file__).parent.parent.parent / "prompts" / "c5_extract_v2.txt"
+        if Path(prompt_v2_path).is_file():
+            with open(prompt_v2_path, "r", encoding="utf-8") as f:
+                self.prompt_template_v2 = f.read()
+        else:
+            self.prompt_template_v2 = ""
 
         # Initialize client
         if client is not None:
@@ -92,6 +113,10 @@ class GeminiExtractor:
         content_hash = hashlib.sha256(f"{target_name}|{target_tin}|{page_text}".encode()).hexdigest()
         return self.cache_dir / f"{self.model}_{PROMPT_VERSION}_{content_hash}.json"
 
+    def _cache_path_v2(self, content_hash: str, sorted_keys: list[str]) -> Path:
+        key = hashlib.sha256(f"{content_hash}|v2|{','.join(sorted_keys)}|{self.model}".encode()).hexdigest()
+        return self.cache_dir / f"{self.model}_v2_{key}.json"
+
     def extract_addresses(
         self,
         target_name: str,
@@ -99,12 +124,7 @@ class GeminiExtractor:
         page_text: str,
         target_or_tin: str = "",
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Extract addresses for a target provider from page text.
-
-        Returns:
-            extracted: list of validated address dicts
-            log_entry: execution metadata dict
-        """
+        """Extract addresses for a target provider from page text (v1 single-target)."""
         target_or_tin = target_or_tin or f"{target_tin}:{target_name}"
         log_entry: dict[str, Any] = {
             "target_or_tin": target_or_tin,
@@ -171,7 +191,6 @@ class GeminiExtractor:
                     config=config,
                 )
 
-                # Track tokens if reported
                 tokens = 0
                 if hasattr(response, "usage_metadata") and response.usage_metadata:
                     tokens = getattr(response.usage_metadata, "total_token_count", 0) or 0
@@ -183,7 +202,6 @@ class GeminiExtractor:
                     self._save_cache(cache_file, log_entry, [])
                     return [], log_entry
 
-                # Validate structured response
                 parsed = json.loads(raw_json)
                 if not isinstance(parsed, list):
                     log_entry["reason_code"] = "malformed_json"
@@ -214,13 +232,134 @@ class GeminiExtractor:
 
         return [], log_entry
 
+    def extract_batched_addresses(
+        self,
+        targets: list[dict[str, str]],
+        trimmed_page_text: str,
+        content_hash: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Extract addresses for a batch of target providers from trimmed text (Tier 2)."""
+        sorted_keys = sorted(t["target_key"] for t in targets)
+        target_keys_str = ";".join(sorted_keys)
+        log_entry: dict[str, Any] = {
+            "target_or_tin": target_keys_str[:100],
+            "prompt_version": "v2",
+            "status": "rejected",
+            "reason_code": None,
+            "tokens": 0,
+            "input_chars": len(trimmed_page_text),
+            "call_time": datetime.utcnow().isoformat(),
+        }
+
+        # 1. Check disk cache
+        cache_file = self._cache_path_v2(content_hash, sorted_keys)
+        if cache_file.is_file():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    cached = json.load(f)
+                log_entry["status"] = cached.get("status", "accepted")
+                log_entry["reason_code"] = cached.get("reason_code")
+                log_entry["tokens"] = cached.get("tokens", 0)
+                log_entry["cache_hit"] = True
+                return cached.get("addresses", []), log_entry
+            except Exception as e:
+                log.warning(f"Cache read error: {e}")
+
+        # 2. Check call cap
+        if self.calls_made >= self.call_cap:
+            log.warning(f"LLM call cap reached ({self.call_cap}). Halting Tier 2 calls.")
+            log_entry["reason_code"] = "call_cap_reached"
+            return [], log_entry
+
+        if not self.enabled or self.client is None:
+            log_entry["reason_code"] = "llm_disabled"
+            return [], log_entry
+
+        # 3. Format prompt
+        targets_json_str = json.dumps(targets, indent=2)
+        prompt = (
+            self.prompt_template_v2
+            .replace("{targets_json}", targets_json_str)
+            .replace("{page_text}", trimmed_page_text[:self.max_input_chars])
+        )
+        log_entry["input_chars"] = len(prompt)
+
+        config = types.GenerateContentConfig(
+            temperature=self.temperature,
+            response_mime_type="application/json",
+            response_schema=list[BatchedExtractedAddress],
+        )
+
+        # 4. Rate limit check
+        now = time.time()
+        elapsed = now - self.last_call_time
+        if elapsed < self.delay_between_calls:
+            time.sleep(self.delay_between_calls - elapsed)
+
+        # 5. Execute with backoff
+        for attempt in range(self.max_retries + 1):
+            try:
+                self.last_call_time = time.time()
+                self.calls_made += 1
+
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=config,
+                )
+
+                tokens = 0
+                if hasattr(response, "usage_metadata") and response.usage_metadata:
+                    tokens = getattr(response.usage_metadata, "total_token_count", 0) or 0
+                log_entry["tokens"] = tokens
+
+                raw_json = response.text
+                if not raw_json or not raw_json.strip():
+                    log_entry["reason_code"] = "empty_response"
+                    self._save_cache(cache_file, log_entry, [])
+                    return [], log_entry
+
+                parsed = json.loads(raw_json)
+                if not isinstance(parsed, list):
+                    log_entry["reason_code"] = "malformed_json"
+                    self._save_cache(cache_file, log_entry, [])
+                    return [], log_entry
+
+                valid_keys = set(sorted_keys)
+                validated_items = []
+                for item in parsed:
+                    if str(item.get("target_key")) not in valid_keys:
+                        log.warning(f"Rejecting unknown target key {item.get('target_key')}")
+                        continue
+                    valid_obj = BatchedExtractedAddress.model_validate(item)
+                    validated_items.append(valid_obj.model_dump())
+
+                log_entry["status"] = "accepted" if validated_items else "rejected"
+                log_entry["reason_code"] = None if validated_items else "no_addresses_found"
+                self._save_cache(cache_file, log_entry, validated_items)
+                return validated_items, log_entry
+
+            except Exception as exc:
+                if attempt < self.max_retries:
+                    self.retries_count += 1
+                    backoff = (2 ** attempt) * 1.5
+                    log.warning(f"Tier 2 Gemini call error attempt {attempt+1}/{self.max_retries+1}: {exc}. Backing off {backoff:.1f}s...")
+                    time.sleep(backoff)
+                else:
+                    log.error(f"Tier 2 Gemini call failed after {self.max_retries+1} attempts: {exc}")
+                    log_entry["reason_code"] = f"api_error:{type(exc).__name__}"
+                    self._save_cache(cache_file, log_entry, [])
+                    return [], log_entry
+
+        return [], log_entry
+
     def _save_cache(self, path: Path, log_entry: dict, addresses: list[dict]) -> None:
         try:
             data = dict(log_entry)
             data["addresses"] = addresses
             data["model_name"] = self.model
             data["sdk_version"] = SDK_VERSION
-            data["prompt_version"] = PROMPT_VERSION
+            data["prompt_version"] = log_entry.get("prompt_version", PROMPT_VERSION)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:

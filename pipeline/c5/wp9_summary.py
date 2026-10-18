@@ -136,13 +136,23 @@ def run_wp9(
     }
 
     # Before / After comparison
-    baseline_summary_path = Path("output/c5_baseline/c5_summary.json")
-    if baseline_summary_path.is_file():
+    before_path = None
+    for cand in [
+        Path("outputs/c5_before_tiered/c5_summary.json"),
+        Path("output/c5_before_tiered/c5_summary.json"),
+        Path("output/c5_baseline/c5_summary.json"),
+    ]:
+        if cand.is_file():
+            before_path = cand
+            break
+
+    if before_path is not None:
         try:
-            with open(baseline_summary_path) as bf:
+            with open(before_path) as bf:
                 base_s = json.load(bf)
             before_counts = base_s.get("verification_results", {}).get("by_target_pair", {}).get("counts", {})
             summary["before_after_comparison"] = {
+                "baseline_source": str(before_path),
                 "before_counts": before_counts,
                 "after_counts": label_counts,
                 "labels_upgraded": lookup_stats.get("labels_upgraded") if lookup_stats else None,

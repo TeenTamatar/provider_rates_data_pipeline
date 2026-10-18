@@ -22,33 +22,53 @@ site_consensus_min_npis: 2            # Min NPIs at a site for it to enter the T
 # ── Labelling rules ───────────────────────────────────────────────────────────
 verified_min_independent_families: 2  # Need at least this many independent families for verified
 
-# ── LLM (Gemini Backend) ──────────────────────────────────────────────────────
+# ── LLM (Gemini Backend & Spend Controls) ─────────────────────────────────────
 llm_enabled: true
 llm_provider: gemini
 llm_model: gemini-2.5-flash
 llm_temperature: 0
-llm_call_cap: 1000
+llm_call_cap: 300
 llm_max_retries: 3
 llm_requests_per_minute: 15
 llm_timeout_seconds: 60
 llm_cache_dir: output/c5/llm_cache
 gemini_api_key_env: GEMINI_API_KEY
+llm_max_input_chars: 6000
+llm_batch_targets_per_call: 20
+llm_max_calls_per_tin: 1
+llm_stop_after_zero_yield_calls: 15
+domain_yield_check_after_calls: 10
+domain_min_accept_rate: 0.10
 
-# ── Web Fetcher ───────────────────────────────────────────────────────────────
+# ── Web Fetcher & Allowlist ───────────────────────────────────────────────────
+discovery_search_enabled: false
 web_fetch_enabled: true
-web_fetch_allowlist: []                # Empty by default; human adds allowlisted domains
-web_fetch_domain_family:               # Map of domain -> source family
+web_fetch_allowlist:
+  - healthnet.com
+  - search.dca.ca.gov
+web_fetch_domain_family:
   healthnet.com: payer
-  centene.com: payer
-  sutterhealth.org: web
-  kp.org: web
-  doximity.com: web_aggregator
-  healthgrades.com: web_aggregator
-  vitals.com: web_aggregator
+  search.dca.ca.gov: web
+web_fetch_match_subdomains: true      # www.healthnet.com matches healthnet.com; redirects to any non-allowlisted domain are still refused
 web_fetch_respect_robots: true
 web_fetch_requests_per_minute: 20
 web_fetch_max_bytes: 2000000           # 2 MB max size
 web_fetch_cache_dir: output/c5/web_cache
+
+# ── URL Sources & Probe ───────────────────────────────────────────────────────
+url_templates: {}                     # human-supplied only; never invent patterns
+probe_urls: {}                        # domain -> list of 3-5 real URLs a human supplies
+probe_min_ok_share: 0.5
+lookup_max_urls_per_tin: 2
+
+# ── Tiered Extraction ─────────────────────────────────────────────────────────
+tiered_extraction_enabled: true
+tier0_confirm_enabled: true
+tier1_structured_enabled: true
+tier2_llm_enabled: true
+name_proximity_chars: 400
+negative_cache_days: 90
+estimate_only: true
 
 # ── Score weights (transparent additive sum; tune in WP8 calibration) ─────────
 score_weights:
@@ -100,7 +120,13 @@ paths:
   c5_sample:      output/c5/c5_calibration_sample.csv
   c5_lookup_log:  output/c5/c5_lookup_log.csv
   c5_llm_log:     output/c5/c5_llm_log.csv
+  c5_domain_probe: output/c5/c5_domain_probe.csv
+  c5_extraction_log: output/c5/c5_extraction_log.csv
+  c5_domain_yield: output/c5/c5_domain_yield.csv
+  c5_suggested_domains: output/c5/c5_suggested_domains.csv
   prompt_template: prompts/c5_extract_v1.txt
+  prompt_template_v2: prompts/c5_extract_v2.txt
+  c2b_ppo_rates:  ../hilabs-provider-rates/handoff/data/c2b_ppo_rates.parquet
   geocode_cache:  output/c5/geocode_cache.parquet
   config_snapshot: output/c5/c5_config_snapshot.yaml
   sources_manifest: output/c5/c5_sources_manifest.json

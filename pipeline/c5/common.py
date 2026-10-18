@@ -186,8 +186,8 @@ SCHEMA_ADDRESSES = [
 
 SCHEMA_LEFTOVERS = [
     "tin", "npi", "business_name", "entity_type", "specialty_code",
-    "tin_size", "ppo_scope", "best_candidate_address", "reason_unverified",
-    "lookup_url", "lookup_address", "lookup_source",
+    "tin_size", "tin_priority", "ppo_scope", "best_candidate_address", "reason_unverified",
+    "lookup_url", "lookup_url_method", "lookup_address", "lookup_source",
 ]
 
 SCHEMA_LOOKUP_LOG = [
@@ -196,6 +196,23 @@ SCHEMA_LOOKUP_LOG = [
 
 SCHEMA_LLM_LOG = [
     "target_or_tin", "prompt_version", "status", "reason_code", "tokens", "call_time",
+]
+
+SCHEMA_DOMAIN_PROBE = [
+    "domain", "url", "status", "detail", "probe_date",
+]
+
+SCHEMA_EXTRACTION_LOG = [
+    "page_id", "url", "domain", "content_hash", "tier_resolved",
+    "targets_in_page", "targets_resolved", "llm_called", "input_chars", "reject_reasons",
+]
+
+SCHEMA_DOMAIN_YIELD = [
+    "domain", "pages", "tier0_hits", "tier1_hits", "llm_calls", "accepted", "accept_rate", "stopped_reason",
+]
+
+SCHEMA_SUGGESTED_DOMAINS = [
+    "domain", "n_urls", "n_targets_covered", "example_url",
 ]
 
 

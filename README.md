@@ -17,37 +17,77 @@ cp .env.example .env
 # Edit .env and set your GEMINI_API_KEY (from Google AI Studio):
 # GEMINI_API_KEY=your_key_here
 
-# 4. Configure web fetch allowlist in config/c5.yaml (optional)
-# Under web_fetch_allowlist, add permitted payer or provider domains:
+# 4. Configure web fetch allowlist and probe URLs in config/c5.yaml
+# Add permitted payer/web domains and 3-5 real provider result URLs to probe:
 # web_fetch_allowlist:
-#   - "healthnet.com"
-#   - "sutterhealth.org"
+#   - healthnet.com
+#   - search.dca.ca.gov
+# probe_urls:
+#   healthnet.com:
+#     - "https://www.healthnet.com/provider-sample-1"
+#     - "https://www.healthnet.com/provider-sample-2"
 
-# 5. Run the C5 Address Mapping pipeline end-to-end
+# 5. Run domain probe only (verifies gates, writes c5_domain_probe.csv)
+python pipeline/run_c5.py --probe-only
+
+# 6. Run in estimate mode (Tiers 0 & 1 only, estimates Gemini calls needed, zero model spend)
+python pipeline/run_c5.py --estimate
+
+# 7. Run full C5 Address Mapping pipeline
 python pipeline/run_c5.py
 
-# Optional: Run dry-run (skips network calls)
+# 8. Offline replay (idempotent run; hits disk cache with zero network/API calls)
 python pipeline/run_c5.py --dry-run
 
-# Run unit tests
+# 9. Run unit tests
 pytest tests/test_c5.py -v
 ```
 
 All parameters, weights, and file paths are fully configurable in `config/c5.yaml`.
 A snapshot of the configuration (with its SHA-256 hash) is stored with every run.
 
+## Adding Probe URLs, Templates, and Domains
+
+### 1. Adding Allowlisted Domains
+In `config/c5.yaml`, add the domain under `web_fetch_allowlist` and its family (`payer` or `web`) under `web_fetch_domain_family`:
+```yaml
+web_fetch_allowlist:
+  - healthnet.com
+  - search.dca.ca.gov
+web_fetch_domain_family:
+  healthnet.com: payer
+  search.dca.ca.gov: web
+```
+
+### 2. Supplying Probe URLs (Gate Requirement)
+Every allowlisted domain must be probed before live lookups can occur. Supply 3 to 5 real provider search result URLs copied from a browser under `probe_urls`:
+```yaml
+probe_urls:
+  healthnet.com:
+    - "https://www.healthnet.com/portal/provider/searchResult.do?..."
+```
+If `probe_urls` is empty, the domain is marked `unprobed`, lookups halt cleanly, and human instructions with the priority TIN list are written to `output/c5/c5_leftovers.csv`.
+
+### 3. Adding URL Templates
+Supply URL templates with placeholders (`{npi}`, `{tin}`, `{name_slug}`, `{city_slug}`, `{zip5}`):
+```yaml
+url_templates:
+  dca_license: "https://search.dca.ca.gov/details/{npi}"
+```
+Missing placeholders skip template generation without errors. Search-based discovery is strictly prohibited (`discovery_search_enabled: false`).
+
 ## Pipeline steps
 
 | Step | Code | Description |
 |------|------|-------------|
 | WP0 | `wp0_readiness.py` | Environment check, file verification, source manifest (`c5_sources_manifest.json`), 5-NPI probe |
-| WP1 | `wp1_targets.py` | Load target TIN-NPI population (`rate_file_providers.csv`), resolve entity types, deactivation check |
+| WP1 | `wp1_targets.py` | Load target TIN-NPI population reconciled against C2b step 6 (`c2b_ppo_rates`), resolve entity types, deactivation check |
 | WP2 | `wp2_claims.py` | Extract evidence claims (NPPES primary + secondary + endpoints = `nppes_self`; CMS DAC = `medicare`) |
 | WP3 | `wp3_sites.py` | USPS address normalization, Census batch geocoding, persistent disk cache |
 | WP4 | `wp4_tin_sites.py` | Build validated TIN site sets (org NPI support, provider consensus, Medicare group overlap) |
 | WP5 | `wp5_candidates.py` | Candidate generation and 6-factor weighted scoring |
 | WP6 | `wp6_choose.py` | Stale & conflict checks, winner selection, verified/probable/unverified labelling |
-| WP7 | `wp7_leftovers.py` | Capped leftover-lookup: allowlisted static web fetcher (robots.txt compliance) + Google Gemini structured extraction with verbatim quote-check |
+| WP7 | `wp7_leftovers.py` | Domain probe gate + Tiered extraction: Tier 0 (deterministic confirm), Tier 1 (JSON-LD, microdata, `<address>`), Tier 2 (batched Gemini 2.5 Flash with quote-check, name proximity, spend caps) |
 | WP8 | `wp8_validation.py` | Stratified 200-pair audit calibration sample |
 | WP9 | `wp9_summary.py` | Write `c5_summary.json` with before/after comparison and run statistics |
 

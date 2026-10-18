@@ -34,14 +34,31 @@ from .wp9_summary import run_wp9
 log = get_logger("c5.run_all")
 
 
-def run_pipeline(config_path: Path | None = None, dry_run: bool = False) -> None:
+def run_pipeline(
+    config_path: Path | None = None,
+    dry_run: bool = False,
+    estimate: bool = False,
+    probe_only: bool = False,
+) -> None:
     t0 = time.time()
     cfg = load_config(config_path) if config_path else load_config()
+
+    if estimate:
+        cfg["estimate_only"] = True
+
+    if probe_only:
+        log.info("Running domain probe only...")
+        from .page_fetcher import run_domain_probe
+        df_probe, domain_status, unprobed = run_domain_probe(cfg)
+        print("\nDomain Probe Results:")
+        print(df_probe.to_string(index=False))
+        return
 
     log.info("=" * 60)
     log.info("STARTING C5 ADDRESS MAPPING PIPELINE (Health Net CA PPO)")
     log.info(f"Target Rate File: {cfg.get('target_rate_file')}")
     log.info(f"Run Date: {cfg.get('run_date')}")
+    log.info(f"Estimate Only: {cfg.get('estimate_only', False)}")
     log.info("=" * 60)
 
     # WP0: Readiness & Manifest
@@ -65,7 +82,7 @@ def run_pipeline(config_path: Path | None = None, dry_run: bool = False) -> None
     # WP6: Stale Checks, Selection, Labelling
     stale_claims, addresses = run_wp6(cfg, targets, claims_with_sites, candidates)
 
-    # WP7: Leftovers Queue & Allowlisted Web / Gemini lookups
+    # WP7: Leftovers Queue & Tiered Extraction (Probe, T0, T1, T2)
     leftovers, addresses, candidates, lookup_stats = run_wp7(
         cfg, targets, addresses, candidates,
         claims=claims_with_sites, sites=sites, tin_sites=tin_sites
@@ -90,10 +107,12 @@ def main():
     parser = argparse.ArgumentParser(description="Run C5 Address Mapping pipeline")
     parser.add_argument("--config", type=str, default=None, help="Path to c5.yaml config")
     parser.add_argument("--dry-run", action="store_true", help="Dry run geocoding (skip census calls)")
+    parser.add_argument("--estimate", action="store_true", help="Estimate mode: probe, T0 and T1 only; zero Gemini calls")
+    parser.add_argument("--probe-only", action="store_true", help="Probe allowlisted domains only and print results")
     args = parser.parse_args()
 
     cfg_path = Path(args.config) if args.config else None
-    run_pipeline(config_path=cfg_path, dry_run=args.dry_run)
+    run_pipeline(config_path=cfg_path, dry_run=args.dry_run, estimate=args.estimate, probe_only=args.probe_only)
 
 
 if __name__ == "__main__":
