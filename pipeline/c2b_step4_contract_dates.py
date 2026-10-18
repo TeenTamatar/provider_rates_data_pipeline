@@ -60,7 +60,7 @@ def main():
                count(distinct p.negotiated_rate) > 1 rates_differ,
                count(distinct p.expiration_date) > 1 dates_differ,
                min(p.negotiated_rate) min_rate, max(p.negotiated_rate) max_rate,
-               string_agg(distinct cast(p.provider_group_id as varchar), ';') group_ids
+               string_agg(distinct cast(p.provider_group_id as varchar), ';' order by cast(p.provider_group_id as varchar)) group_ids
         from p join g on g.rate_file = p.rate_file and g.provider_group_id = p.provider_group_id
         where g.member_signature in (select member_signature from g group by 1 having count(*) > 1)
         group by all having count(distinct p.provider_group_id) > 1""")

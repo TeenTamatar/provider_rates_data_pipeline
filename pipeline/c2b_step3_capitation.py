@@ -1,8 +1,8 @@
 """C2b step 3: build the price table and flag capitation.
 
-Streams the `in_network` section of every in-scope rate file (from the plan table,
-as in step 1) into one normalized price table, one row per published price x
-provider group it applies to:
+Reads the prices of every in-scope rate file from the shared scan (pipeline/rate_scan.py,
+output/scan/; the plan table picks the files, as in step 1), so no rate file is parsed again,
+into one normalized price table, one row per published price x provider group it applies to:
 
   c2b_prices.parquet   rate_file, item_index, billing_code_type, billing_code,
                        negotiation_arrangement, rate_index, provider_group_id,
@@ -21,82 +21,45 @@ per price; a group is only excluded as a whole if all its prices are capitation.
 
 Usage:
     python pipeline/c2b_step3_capitation.py
-    python pipeline/c2b_step3_capitation.py --plans output/c1/c1_plans_ca.csv --rate-dir Data/rate_files --out output/c2b
+    python pipeline/c2b_step3_capitation.py --plans output/c1/c1_plans_ca.csv --scan output/scan --out output/c2b
 """
 import argparse
-import concurrent.futures as cf
-import csv
 import json
 import os
 import sys
-import time
-from collections import Counter
 
 import duckdb
-import ijson
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from c2b_step1_groups import DEFAULT_OUT, DEFAULT_PLANS, DEFAULT_RATE_DIR, rate_files_for  # noqa: E402
+from c2b_step1_groups import DEFAULT_OUT, DEFAULT_PLANS, DEFAULT_SCAN, nonempty, scanned_files_for  # noqa: E402
 
-PRICE_COLS = ["rate_file", "item_index", "billing_code_type", "billing_code", "negotiation_arrangement",
-              "rate_index", "provider_group_id", "price_index", "negotiated_type", "negotiated_rate",
-              "expiration_date", "billing_class", "setting", "service_code", "billing_code_modifier",
-              "additional_information"]
-
-
-def parse_prices(job):
-    """Stream one rate file's in_network section into a temporary CSV."""
-    label, path, tmp_dir = job
-    t0 = time.time()
-    out = os.path.join(tmp_dir, f"{label}_prices.csv")
-    stats = Counter()
-    with open(path, "rb") as src, open(out, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        for i, item in enumerate(ijson.items(src, "in_network.item", use_float=False)):
-            stats["items"] += 1
-            head = [label, i, item.get("billing_code_type", ""), str(item.get("billing_code", "")),
-                    item.get("negotiation_arrangement", "")]
-            for r, rate in enumerate(item.get("negotiated_rates") or []):
-                stats["negotiated_rates"] += 1
-                refs = rate.get("provider_references") or []
-                if rate.get("provider_groups"):
-                    stats["inline_provider_groups"] += 1  # not used by this file; counted so it is visible
-                for p, price in enumerate(rate.get("negotiated_prices") or []):
-                    stats["prices"] += 1
-                    tail = [p, price.get("negotiated_type", ""), str(price.get("negotiated_rate", "")),
-                            price.get("expiration_date", ""), price.get("billing_class", ""),
-                            price.get("setting", ""), ";".join(map(str, price.get("service_code") or [])),
-                            ";".join(map(str, price.get("billing_code_modifier") or [])),
-                            price.get("additional_information", "") or ""]
-                    for gid in refs:
-                        w.writerow(head + [r, gid] + tail)
-                        stats["price_group_rows"] += 1
-    stats["seconds"] = round(time.time() - t0, 1)
-    return label, out, dict(stats)
+TEXT_COLS = ["billing_code_type", "billing_code", "negotiation_arrangement", "negotiated_type", "expiration_date",
+             "billing_class", "setting", "service_code", "billing_code_modifier", "additional_information"]
+# Scan counters reported per file, under the names this step has always used.
+STAT_NAMES = {"items": "item_objects", "negotiated_rates": "rate_objects", "prices": "price_objects",
+              "price_group_rows": "price_group_rows", "inline_provider_groups": "inline_group_sets"}
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plans", default=DEFAULT_PLANS, help="in-scope plan table (default: output/c1/c1_plans_ca.csv)")
-    ap.add_argument("--rate-dir", default=DEFAULT_RATE_DIR, help="folder holding the rate files (default: Data/rate_files)")
+    ap.add_argument("--scan", default=DEFAULT_SCAN, help="shared scan folder (default: output/scan)")
     ap.add_argument("--out", default=DEFAULT_OUT, help="output folder (default: output/c2b)")
-    ap.add_argument("--workers", type=int, default=os.cpu_count() or 2)
     args = ap.parse_args()
 
-    files = rate_files_for(args.plans, args.rate_dir)
-    tmp_dir = os.path.join(args.out, "_tmp")
-    os.makedirs(tmp_dir, exist_ok=True)
-    print(f"parsing prices in {len(files)} rate file(s): {[f for f, _ in files]}", file=sys.stderr)
-    with cf.ProcessPoolExecutor(max_workers=min(args.workers, len(files))) as pool:
-        results = list(pool.map(parse_prices, [(label, path, tmp_dir) for label, path in files]))
-
+    files = scanned_files_for(args.plans, args.scan, "prices")
+    os.makedirs(args.out, exist_ok=True)
     con = duckdb.connect()
-    sources = ", ".join(f"'{p}'" for _, p, _ in results)
-    con.execute(f"""create table p as select * from read_csv([{sources}], header=false, all_varchar=true,
-                    names={PRICE_COLS})""")
-    for col in ("item_index", "rate_index", "provider_group_id", "price_index"):
-        con.execute(f"alter table p alter {col} type integer")
-    con.execute("alter table p alter negotiated_rate type double")
+    text = {c: nonempty(c) for c in TEXT_COLS}
+    union = " union all ".join(
+        f"""select '{label}' rate_file, cast(item_index as integer) item_index, {text['billing_code_type']},
+                   {text['billing_code']}, {text['negotiation_arrangement']}, cast(rate_index as integer) rate_index,
+                   cast(provider_group_id as integer) provider_group_id, cast(price_index as integer) price_index,
+                   {text['negotiated_type']}, negotiated_rate, {text['expiration_date']}, {text['billing_class']},
+                   {text['setting']}, {text['service_code']}, {text['billing_code_modifier']},
+                   {text['additional_information']}
+            from '{path}' where provider_group_id <> '-1'""" for label, path in files)
+    con.execute(f"create table p as {union}")
     prices_path = os.path.join(args.out, "c2b_prices.parquet")
     con.execute(f"copy p to '{prices_path}' (format parquet)")
 
@@ -111,7 +74,10 @@ def main():
                           from p group by 1, 2 having capitation_prices > 0 order by 1, 2)
                     to '{cap_path}' (header)""")
     per_file = {}
-    for label, _, stats in results:
+    for label, _ in files:
+        with open(os.path.join(args.scan, f"{label}_stats.json"), encoding="utf-8") as f:
+            counts = json.load(f)["counts"]
+        stats = {name: counts.get(key, 0) for name, key in STAT_NAMES.items()}
         arr = dict(q(f"select negotiation_arrangement, count(*) from p where rate_file = '{label}' group by 1"))
         cap = q(f"""select count(distinct billing_code), count(distinct provider_group_id), count(*),
                            count(distinct (item_index, rate_index, price_index))
@@ -126,9 +92,6 @@ def main():
     summary = {"rate_files": per_file, "outputs": [prices_path, cap_path]}
     with open(os.path.join(args.out, "c2b_step3_summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
-    for _, path, _ in results:
-        os.remove(path)
-    os.rmdir(tmp_dir)
     print(json.dumps(summary, indent=2))
 
 
