@@ -1,9 +1,9 @@
-pattern_id,regex,label,strength,meaning,evidence
-ppo_county,^PPO:\s*(?P<county>.+?)\s*$,ppo,strong,"Health Net PPO contract for one county (""PPO: Sacramento County"")",F3/F18: 103 TIN entries in the Health Net CA file; the label names the PPO network
-healthnet_ppo,^HEALTH\s*NET\s+PPO\b,ppo,strong,"""HealthNet PPO (California)""",Names the Health Net PPO network directly
-ambetter_ppo,^DIRECT NETWORK:\s*AMBETTER PPO\b,other_product,strong,Ambetter (individual marketplace) PPO direct network,"Ambetter is out of scope (A1, A10); business name has no provider name; its providers appear in no other group"
-ambetter_hmo,^DIRECT NETWORK:\s*AMBETTER HMO\b,other_network,strong,Ambetter HMO direct network,"HMO network, and Ambetter is out of scope (A1, A10)"
-simnsa,\bSIMNSA\b,other_network,strong,"SIMNSA (Servicios Medicos Nacionales S.A.), the Baja California network behind Salud HMO y Mas","Salud HMO flyer FLY1566908EL01w; HMO network, providers in Mexico"
-direct_network_county,^DIRECT NETWORK:\s*(?P<county>.+?)\s*$,direct_network,hint,"""Direct Network: <County>"": a direct contract that names no network type",Names no PPO/HMO type; kept as a hint only
-direct_ffs_commercial,^HEALTH NET DIRECT FFS COMMERCIAL$,direct_ffs_commercial,hint,"Health Net direct fee-for-service contract, commercial line of business","Fee-for-service, not capitated; commercial covers both HMO and PPO, so no network type"
-ipa,(\bIPA\b|\(\w*IPA\)),ipa,hint,Independent Practice Association (physician group that usually contracts for HMO members),IPAs are the usual HMO delivery model in California but can also hold PPO contracts; hint only
+pattern_id,regex,label,strength,network_type,out_of_scope,meaning,evidence
+ppo_county,^PPO:\s*(?P<county>.+?)\s*$,ppo,strong,PPO,no,"Health Net PPO contract for one county (""PPO: Sacramento County"")",F3/F18: 103 TIN entries in the Health Net CA file; the label names the PPO network
+healthnet_ppo,^HEALTH\s*NET\s+PPO\b,ppo,strong,PPO,no,"""HealthNet PPO (California)""",Names the Health Net PPO network directly
+ambetter_ppo,^DIRECT NETWORK:\s*AMBETTER PPO\b,other_product,strong,PPO,yes,Ambetter (individual marketplace) PPO direct network,"Ambetter is out of scope (A1, A10); business name has no provider name; its providers appear in no other group"
+ambetter_hmo,^DIRECT NETWORK:\s*AMBETTER HMO\b,other_network,strong,HMO,yes,Ambetter HMO direct network,"HMO network, and Ambetter is out of scope (A1, A10)"
+simnsa,\bSIMNSA\b,other_network,strong,HMO,no,"SIMNSA (Servicios Medicos Nacionales S.A.), the Baja California network behind Salud HMO y Mas","Salud HMO flyer FLY1566908EL01w; HMO network, providers in Mexico"
+direct_network_county,^DIRECT NETWORK:\s*(?P<county>.+?)\s*$,direct_network,hint,,no,"""Direct Network: <County>"": a direct contract that names no network type",Names no PPO/HMO type; kept as a hint only
+direct_ffs_commercial,^HEALTH NET DIRECT FFS COMMERCIAL$,direct_ffs_commercial,hint,,no,"Health Net direct fee-for-service contract, commercial line of business","Fee-for-service, not capitated; commercial covers both HMO and PPO, so no network type"
+ipa,(\bIPA\b|\(\w*IPA\)),ipa,hint,,no,Independent Practice Association (physician group that usually contracts for HMO members),IPAs are the usual HMO delivery model in California but can also hold PPO contracts; hint only

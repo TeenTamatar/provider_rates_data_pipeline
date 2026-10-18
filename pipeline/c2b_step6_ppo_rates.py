@@ -1,7 +1,7 @@
-"""C2b step 6: the final PPO rate table (closes C2b).
+"""C2b step 6: the final rate table for the target network (closes C2b; PPO by default).
 
-Applies every C2b decision to the deduplicated prices and writes the PPO rates the
-later challenges use. One row per TIN-NPI x provider group x price key x rate.
+Applies every C2b decision to the deduplicated prices and writes the target network's rates
+(`--network`, default PPO; the same rules for any network type) that the later challenges use. One row per TIN-NPI x provider group x price key x rate.
 Each row is either kept or dropped with one reason (first that applies):
 
   excluded_entry     TIN entry marked other_network / other_product (step 2, R2.13-R2.14)
@@ -9,21 +9,26 @@ Each row is either kept or dropped with one reason (first that applies):
   expired            expiration_date before the run date (step 4, R2.18)
   parallel_contract  the pair x key has different rates in different groups
                      (step 5 differing_copies; strict route, A9, R2.24)
+  no_target_evidence the row has no target-network marker and unmarked rates are not kept
+                     (`--unmarked drop`, the default for every network except PPO; A9's reason for
+                     keeping unmarked rates, that PPO is the widest network, does not hold for others)
 
 Kept rows carry an `evidence` value instead of a score (R2.26):
-  ppo_marker          the TIN entry says PPO ("PPO: <County>", "HealthNet PPO")
+  <target>_marker     the TIN entry or its network_name says the target network (ppo_marker:
+                      "PPO: <County>", "HealthNet PPO")
   unconflicted_rate   no marker and no evidence against it (A9)
 plus `copy_status` (single, identical_copies, within_group_variants) and the
 entry's hint (`entry_label`), if any.
 
 Outputs (output/c2b/):
-  c2b_ppo_rates.parquet / .csv   kept rows: the PPO rates
+  c2b_<target>_rates.parquet / .csv   kept rows: the target network's rates (c2b_ppo_rates for PPO)
   c2b_step6_dropped.csv          dropped rows with drop_reason
   c2b_step6_summary.json
 
 Usage:
     python pipeline/c2b_step6_ppo_rates.py
     python pipeline/c2b_step6_ppo_rates.py --run-date 2026-10-18
+    python pipeline/c2b_step6_ppo_rates.py --dir output/c2b_hmo --network HMO --run-date 2026-10-18
 """
 import argparse
 import datetime as dt
@@ -43,7 +48,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dir", default=DEFAULT_DIR, help="folder with the C2b step 1-5 outputs, also the output folder")
     ap.add_argument("--run-date", default=dt.date.today().isoformat(), help="prices expiring before this are dropped")
+    ap.add_argument("--network", default="PPO", help="target network type, as in step 2 (default: PPO)")
+    ap.add_argument("--unmarked", choices=["keep", "drop"],
+                    help="unconflicted rates without a target marker (default: keep for PPO, A9; drop otherwise)")
     args = ap.parse_args()
+    unmarked = args.unmarked or ("keep" if args.network.upper() == "PPO" else "drop")
+    t = args.network.lower()
+    out = f"c2b_{t}_rates"
     d = lambda name: os.path.join(args.dir, name).replace("\\", "/")
 
     con = duckdb.connect()
@@ -65,6 +76,7 @@ def main():
                     when p.negotiation_arrangement = 'capitation' then 'capitation'
                     when e.expiration_date < '{args.run_date}' then 'expired'
                     when c.copy_status = 'differing_copies' then 'parallel_contract'
+                    when '{unmarked}' = 'drop' and m.entry_label <> '{t}' then 'no_target_evidence'
                     else '' end drop_reason
         from read_parquet('{d("c2b_step5_price_keys.parquet")}') p
         join (select rate_file, provider_group_id, {", ".join(KEY)}, negotiated_rate, min(expiration_date) expiration_date
@@ -75,13 +87,13 @@ def main():
         left join read_parquet('{d("c2b_step5_pair_key_copies.parquet")}') c
           on c.rate_file = p.rate_file and c.tin = m.tin and c.npi = m.npi
          and {" and ".join(f"c.{k} is not distinct from p.{k}" for k in KEY)}""")
-    con.execute("""create table kept as
+    con.execute(f"""create table kept as
         select * exclude (drop_reason),
-               case when entry_label = 'ppo' then 'ppo_marker' else 'unconflicted_rate' end evidence
+               case when entry_label = '{t}' then '{t}_marker' else 'unconflicted_rate' end evidence
         from rows where drop_reason = ''
         order by tin, npi, billing_code_type, billing_code, additional_information, provider_group_id""")
-    con.execute(f"copy kept to '{d('c2b_ppo_rates.parquet')}' (format parquet)")
-    con.execute(f"copy kept to '{d('c2b_ppo_rates.csv')}' (header)")
+    con.execute(f"copy kept to '{d(out + '.parquet')}' (format parquet)")
+    con.execute(f"copy kept to '{d(out + '.csv')}' (header)")
     con.execute(f"""copy (select * from rows where drop_reason <> '' order by drop_reason, tin, npi, billing_code)
                     to '{d('c2b_step6_dropped.csv')}' (header)""")
 
@@ -94,6 +106,8 @@ def main():
                 "provider_groups": r[5], "billing_codes": r[6], "pair_keys": r[7]}
 
     summary = {
+        "network": args.network.upper(),
+        "unmarked_rates": unmarked,
         "run_date": args.run_date,
         "all": counts("rows"),
         "kept": {**counts("kept"),
@@ -102,10 +116,11 @@ def main():
                  "by_code_type": dict(q("select billing_code_type || ' ' || billing_class, count(*) from kept group by 1 order by 1")),
                  "by_entry_hint": dict(q("select entry_label, count(*) from kept group by 1 order by 1"))},
         "dropped": {reason: counts("rows", f"drop_reason = '{reason}'")
-                    for reason in ("excluded_entry", "capitation", "expired", "parallel_contract")},
+                    for reason in ("excluded_entry", "capitation", "expired", "parallel_contract")
+                    + (("no_target_evidence",) if unmarked == "drop" else ())},
         "pairs_lost": q("""select count(*) from (select distinct tin, npi from rows)
                            where (tin, npi) not in (select tin, npi from kept)""")[0][0],
-        "outputs": [d("c2b_ppo_rates.parquet"), d("c2b_ppo_rates.csv"), d("c2b_step6_dropped.csv")],
+        "outputs": [d(out + ".parquet"), d(out + ".csv"), d("c2b_step6_dropped.csv")],
     }
     with open(d("c2b_step6_summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
