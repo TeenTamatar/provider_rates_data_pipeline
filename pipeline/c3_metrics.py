@@ -1,6 +1,6 @@
 """C3 metrics: compute the rate-file quality metrics M1-M27 and the scores (LOGIC.md section 3C).
 
-Inputs: output/c1/c1_rate_files.csv (every rate file the index files link), output/c3/scan/ (c3_scan.py),
+Inputs: output/c1/c1_rate_files.csv (every rate file the index files link), output/scan/ (rate_scan.py),
 output/c3/ref/ (c3_reference.py).
 
 Outputs in output/c3/:
@@ -28,11 +28,11 @@ import urllib.request
 import duckdb
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from c3_scan import label_of  # noqa: E402
+from rate_scan import label_of  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_RATE_TABLE = os.path.join(ROOT, "output", "c1", "c1_rate_files.csv")
-SCAN = os.path.join(ROOT, "output", "c3", "scan")
+SCAN = os.path.join(ROOT, "output", "scan")
 REF = os.path.join(ROOT, "output", "c3", "ref")
 DEFAULT_OUT = os.path.join(ROOT, "output", "c3")
 
@@ -220,7 +220,7 @@ def compute(fm, stats, ref, hilabs_total):
     cov = fm.q(f"""
         with codes as (select distinct billing_code code from d where billing_code_type in ('CPT', 'HCPCS')
                        union select distinct additional_information from d
-                       where regexp_matches(additional_information, '^([A-V][0-9]{{4}}|[0-9]{{5}}|[0-9]{{4}}[FTU])$'))
+                       where regexp_matches(additional_information, '^([A-V][0-9]{{4}}|[0-9]{{5}}|[0-9]{{4}}[FTUM])$'))
         select count(*), coalesce(sum(h.weight), 0) from '{ref}/hilabs_codes.parquet' h join codes using (code)""")[0]
     fm.put("M21", round(cov[1]), round(hilabs_total), round(cov[1] / hilabs_total, 6), round(cov[1] / hilabs_total, 6),
            f"{cov[0]} of 583 HiLabs codes priced (incl. codes in additional_information)")

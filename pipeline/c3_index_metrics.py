@@ -5,7 +5,7 @@ Scores each Centene index file (table of contents) and rolls it up with the scor
   dataset score = index score^0.3 x (mean rate-file score)^0.7, unreachable rate files counting 0
   (a weighted geometric mean: the index and the rate files are links in one chain, so a zero in either gives 0).
 
-Inputs: Data/*_index.json, output/c3/c3_rate_file_scores.csv (c3_metrics.py), output/c3/scan/ (c3_scan.py),
+Inputs: Data/*_index.json, output/c3/c3_rate_file_scores.csv (c3_metrics.py), output/scan/ (rate_scan.py),
 output/c3/ref/provider_states.parquet (c3_reference.py).
 
 Outputs in output/c3/:
@@ -30,7 +30,7 @@ import duckdb
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from c3_metrics import curve, reachable  # noqa: E402
-from c3_scan import date_ok, label_of, present, tin_valid  # noqa: E402
+from rate_scan import date_ok, label_of, present, tin_valid  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "Data")
@@ -89,7 +89,7 @@ def file_state(con, label):
     """Top practice state of the providers in a scanned rate file. Each NPI contributes every state it practises
     in: from the CMS Doctors and Clinicians file when the NPI is there, otherwise from NPPES primary and secondary
     locations (NPPES addresses are often stale). Also returns the top state per source family for comparison."""
-    path = os.path.join(C3, "scan", f"{label}_members.parquet")
+    path = os.path.join(ROOT, "output", "scan", f"{label}_members.parquet")
     if not os.path.exists(path):
         return None
     ref = os.path.join(C3, "ref", "provider_states.parquet")

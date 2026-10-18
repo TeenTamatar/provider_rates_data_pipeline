@@ -18,8 +18,8 @@ The two CMS zip files are unzipped into Data/cms_ref/rvu26d/ and Data/cms_ref/hc
   https://www.cms.gov/files/zip/october-2026-alpha-numeric-hcpcs-file.zip
 The Doctors and Clinicians file is expected at Data/c5_truth/DAC_NationalDownloadableFile.csv.
 
-Order: c3_reference.py -> c3_scan.py -> c3_metrics.py -> c3_index_metrics.py
-(c3_scan.py and c3_metrics.py also need output/c1/c1_rate_files.csv from C1, and every rate file in
+Order: c3_reference.py -> rate_scan.py -> c3_metrics.py -> c3_index_metrics.py
+(rate_scan.py and c3_metrics.py also need output/c1/c1_rate_files.csv from C1, and every rate file in
 Data/rate_files/: pipeline/download_rate_files.py).
 
 Usage:
