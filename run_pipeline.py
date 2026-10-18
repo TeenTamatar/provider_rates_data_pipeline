@@ -42,7 +42,7 @@ def steps(a):
         ("c2_step2_other_network_names", ["pipeline/c2_step2_other_network_names.py"]),
         ("c2_step3_unlabelled_names", ["pipeline/c2_step3_unlabelled_names.py"]),
         ("c3_reference", ["pipeline/c3_reference.py"]),
-        ("rate_scan", ["pipeline/rate_scan.py", *rd]),
+        ("rate_scan", ["pipeline/rate_scan.py", *rd, *(["--workers", str(a.scan_workers)] if a.scan_workers else [])]),
         ("c2b_step1_groups", ["pipeline/c2b_step1_groups.py"]),
         ("c2b_step2_name_labels", ["pipeline/c2b_step2_name_labels.py"]),
         ("c2b_step3_capitation", ["pipeline/c2b_step3_capitation.py"]),
@@ -61,6 +61,7 @@ def steps(a):
         ("c7_geocode", ["pipeline/c7_geocode.py", *(["--offline"] if a.offline else [])]),
         ("c7_cost_effectiveness", ["pipeline/c7_cost_effectiveness.py"]),
         ("c7_final_output", ["pipeline/c7_final_output.py"]),
+        ("run_summary", ["pipeline/run_summary.py"]),
     ]
 
 
@@ -80,6 +81,7 @@ def main():
     ap.add_argument("--only", nargs="+", help="run only these steps")
     ap.add_argument("--skip-download", action="store_true", help="skip the download steps")
     ap.add_argument("--offline", action="store_true", help="C5 estimate + dry run (no Gemini/Census), C7 cached geocodes")
+    ap.add_argument("--scan-workers", type=int, help="parallel jobs for the rate file scan (default: CPUs - 2; lower it on small machines)")
     ap.add_argument("--run-date", default=dt.date.today().isoformat(), help="run date for the scan and C3 (default: today)")
     a = ap.parse_args()
 

@@ -1,20 +1,27 @@
 # Centene PPO provider rates pipeline
 
-HiLabs hackathon: build a provider-level PPO rate file for Centene California (NPI × TIN × billing code × address × specialty × rate) from Centene's price transparency files.
+HiLabs hackathon. The pipeline reads Centene's price transparency files and builds a provider-level PPO rate file for California commercial group plans: one row per **NPI × TIN × billing code × practice address × specialty × rate**, with a quality score for every source file and a cost-effectiveness score for every provider.
 
-**Team guides start in [`handoff/`](handoff/README.md).** Rules and their reasons: [`LOGIC.md`](LOGIC.md). Findings F1–F32: [`handoff/FINDINGS.md`](handoff/FINDINGS.md). (These live in the team's working copy and are not on this branch.)
+This document explains what each stage does and how. The rules behind every decision, with their reasons, are in [`LOGIC.md`](LOGIC.md) (also as `LOGIC.pdf`). The numbers of the latest run are in `output/RUN_SUMMARY.md`.
 
-| Stage | Code | Output |
-|---|---|---|
-| C1 parse index files | `pipeline/c1_*.py` | `output/c1/` |
-| C2 find the PPO network, C2b PPO prices | `pipeline/c2_*.py`, `pipeline/c2b_*.py`, `pipeline/rate_scan.py` | `output/c2/`, `output/c2b/`, `output/scan/` |
-| C3 file quality metrics | `pipeline/c3_*.py` | `output/c3/`, `deliverables/` |
-| C4 one rate per provider key | `pipeline/c4_select.py` | `output/c4/` |
-| C5 TIN/NPI → practice address | `pipeline/run_c5.py`, `pipeline/c5/` | `output/c5/` |
-| C6 provider rate file | `pipeline/c6_provider_rate_file.py` | `output/c6/` |
-| C7 cost-effectiveness | `pipeline/c7_*.py` | `output/c7/` |
+## Contents
 
-## Setup
+1. [Run it](#1-run-it)
+2. [Data sources](#2-data-sources)
+3. [How the pipeline fits together](#3-how-the-pipeline-fits-together)
+4. [C1: parse the index files](#4-c1-parse-the-index-files)
+5. [C2: find the PPO network](#5-c2-find-the-ppo-network)
+6. [C3: file quality scores](#6-c3-file-quality-scores)
+7. [C4: one rate per provider and service](#7-c4-one-rate-per-provider-and-service)
+8. [C5: practice address per TIN–NPI](#8-c5-practice-address-per-tinnpi)
+9. [C6: the provider rate file](#9-c6-the-provider-rate-file)
+10. [C7: cost-effectiveness](#10-c7-cost-effectiveness)
+11. [Repository layout](#11-repository-layout)
+12. [Conventions and tests](#12-conventions-and-tests)
+
+---
+
+## 1. Run it
 
 Python 3.12.
 
@@ -22,413 +29,214 @@ Python 3.12.
 pip install -r requirements.txt
 ```
 
-Large inputs are not in git. They go under `Data/` in the repo root (the folder is git-ignored); see [Data sources](#data-sources) below.
-
-C5 also needs a `.env` with `GEMINI_API_KEY` (copy `.env.example`); see [C5 quick start](#quick-start).
-
-## Run everything (one command)
-
-Put the two organizer files in `Data/` (see [Data sources](#data-sources)), then:
+Copy the organizer files into `Data/` (see [Data sources](#2-data-sources)), then run everything with one command:
 
 ```bash
 python run_pipeline.py
 ```
 
-This downloads every public input that is missing, then runs C1 → C7 in order and stops at the first failing step. Useful options:
+It downloads every public input that is missing, then runs C1 to C7 in order and stops at the first failing step. A failure prints the command that resumes from that step. The final file is `output/c7/c7_final.csv`; the headline numbers are written to `output/RUN_SUMMARY.md` and `output/run_summary.json`.
 
 | Option | Effect |
 |---|---|
-| `--list` | Print the 27 steps in run order |
+| `--list` | Print the 28 steps in run order |
 | `--from c4` / `--to c3_report` | Start or stop at a step (full name or prefix) |
 | `--only c6 c7_geocode` | Run only these steps |
 | `--skip-download` | Skip the download steps (inputs already in `Data/`) |
-| `--offline` | No paid or remote calls: C5 runs `--estimate --dry-run` (no Gemini, no Census), C7 uses cached geocodes |
+| `--offline` | C5 runs `--estimate --dry-run` (no web or Gemini calls); C7 uses cached geocodes |
+| `--scan-workers 4` | Parallel jobs for the rate file scan (default: CPUs − 2; lower it if memory is short) |
 | `--run-date 2026-10-18` | Run date for the scan and C3 (default: today) |
 
-A failed step prints the command to resume from it. The final output is in `output/c7/`.
+C5's model step is off by default (`estimate_only: true` in `config/c5.yaml`), so no key is needed. To turn it on, set `estimate_only: false` and put `GEMINI_API_KEY` in `.env` (copy `.env.example`).
 
-## Data sources
+## 2. Data sources
 
-Provided by the organizers (not publicly downloadable; copy into `Data/` yourself):
+`Data/` is git-ignored. Two sets of files:
 
-| Local path | What it holds | Needed by |
+**Provided by the organizers** (copy into `Data/` yourself)
+
+| Local path | What it holds | Used by |
 |---|---|---|
-| `Data/2026-09-30_healthnet_index.json`, `Data/2026-09-28_qualchoice_index.json`, `Data/2026-09-28_fidelis_index.json`, `Data/2026-09-28_ambetter_index.json` | Centene price transparency index files (plans → rate file links) | C1, C3 |
-| `Data/Rate Benchmarking Individual Weights_Hackathon.xlsx` | HiLabs taxonomy → specialty crosswalk, specialty weights, codes per specialty | C3, C4, C6, C7 |
+| `Data/2026-09-30_healthnet_index.json`, `2026-09-28_qualchoice_index.json`, `2026-09-28_fidelis_index.json`, `2026-09-28_ambetter_index.json` | Centene index files: plans and the rate files they link | C1, C3 |
+| `Data/Rate Benchmarking Individual Weights_Hackathon.xlsx` | HiLabs taxonomy → specialty crosswalk, specialty weights, 583 benchmark codes | C3, C4, C6, C7 |
 
-Downloaded automatically by `run_pipeline.py` (or by hand from these links):
+**Downloaded by `run_pipeline.py`** (or by hand from these links)
 
-| Local path | Size | Source | Needed by |
+| Local path | Size | Source | Used by |
 |---|---|---|---|
-| `Data/NPPES_Data_Dissemination_October_2026_V2/` (`npidata_pfile_*`, `pl_pfile_*`, `endpoint_pfile_*`) | 1.1 GB zip, 11 GB unzipped | [NPPES October 2026 V2 zip](https://download.cms.gov/nppes/NPPES_Data_Dissemination_October_2026_V2.zip) ([NPPES downloads page](https://download.cms.gov/nppes/NPI_Files.html)) | C3, C5, C6 |
-| `Data/NPPES Deactivated NPI Report 20261012.xlsx` | 5.4 MB | [NPPES deactivated NPI report zip](https://download.cms.gov/nppes/NPPES_Deactivated_NPI_Report_101226_V2.zip) | C3, C5 |
-| `Data/DAC_NationalDownloadableFile.csv` | ~900 MB | [CMS Doctors and Clinicians national file (dataset mj5m-pzi6)](https://data.cms.gov/provider-data/dataset/mj5m-pzi6) | C3, C5 |
-| `Data/nucc_taxonomy_261.csv` | 520 KB | [NUCC provider taxonomy v26.1 CSV](https://nucc.org/images/stories/CSV/nucc_taxonomy_261.csv) ([NUCC CSV page](https://www.nucc.org/index.php/code-sets-mainmenu-41/provider-taxonomy-mainmenu-40/csv-mainmenu-57)) | C5, C6 |
-| `Data/cms_ref/rvu26d/` | zip | [Medicare PFS RVU26D](https://www.cms.gov/files/zip/rvu26d-updated-08-26-2026.zip) ([PFS relative value files](https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files)) | C3, C7 |
-| `Data/cms_ref/hcpcs_2026_10/` | zip | [HCPCS October 2026 alpha-numeric file](https://www.cms.gov/files/zip/october-2026-alpha-numeric-hcpcs-file.zip) ([HCPCS quarterly update](https://www.cms.gov/medicare/coding-billing/healthcare-common-procedure-system/quarterly-update)) | C3 |
-| `Data/rate_files/*.json` | 700 MB (Health Net CA) and more | Links listed by C1 in `output/c1/c1_rate_files.csv`, e.g. [Health Net CA in-network file](https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-09-30_centene-management-company-llc_healthnet-ca_in-network.json) ([Centene price transparency](https://www.centene.com/price-transparency-files.html)); downloaded by `pipeline/download_rate_files.py` | C2b, C3 |
+| `Data/NPPES_Data_Dissemination_October_2026_V2/` (`npidata_pfile_*`, `pl_pfile_*`, `endpoint_pfile_*`) | 1.1 GB zip, 11 GB unzipped | [NPPES October 2026 V2](https://download.cms.gov/nppes/NPPES_Data_Dissemination_October_2026_V2.zip) ([downloads page](https://download.cms.gov/nppes/NPI_Files.html)) | C3, C5, C6 |
+| `Data/NPPES Deactivated NPI Report 20261012.xlsx` | 5.4 MB | [Deactivated NPI report](https://download.cms.gov/nppes/NPPES_Deactivated_NPI_Report_101226_V2.zip) | C3, C5, C6 |
+| `Data/DAC_NationalDownloadableFile.csv` | ~900 MB | [CMS Doctors and Clinicians, dataset mj5m-pzi6](https://data.cms.gov/provider-data/dataset/mj5m-pzi6) | C3, C5 |
+| `Data/nucc_taxonomy_261.csv` | 520 KB | [NUCC taxonomy v26.1](https://nucc.org/images/stories/CSV/nucc_taxonomy_261.csv) ([page](https://www.nucc.org/index.php/code-sets-mainmenu-41/provider-taxonomy-mainmenu-40/csv-mainmenu-57)) | C5, C6 |
+| `Data/cms_ref/rvu26d/` | zip | [Medicare PFS RVU26D](https://www.cms.gov/files/zip/rvu26d-updated-08-26-2026.zip) ([PFS files](https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files)) | C3, C7 |
+| `Data/cms_ref/hcpcs_2026_10/` | zip | [HCPCS October 2026](https://www.cms.gov/files/zip/october-2026-alpha-numeric-hcpcs-file.zip) ([quarterly update](https://www.cms.gov/medicare/coding-billing/healthcare-common-procedure-system/quarterly-update)) | C3 |
+| `Data/rate_files/*.json` | 700 MB for Health Net CA; 32 files in all | Links in `output/c1/c1_rate_files.csv`, e.g. [Health Net CA](https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-09-30_centene-management-company-llc_healthnet-ca_in-network.json) ([Centene price transparency](https://www.centene.com/price-transparency-files.html)); fetched by `pipeline/download_rate_files.py` | C2b, C3 |
 
-Optional C5 state sources (used when present): [California DCA licensee bulk files](https://www.dca.ca.gov/consumers/public_info/index.shtml) into `data/state_sources/dca/`, and [CDPH healthcare facility locations](https://data.chhs.ca.gov/dataset/healthcare-facility-locations) into `data/state_sources/cdph/health_facility_locations.csv`.
+Optional C5 sources, used when present: [California DCA licensee bulk files](https://www.dca.ca.gov/consumers/public_info/index.shtml) in `data/state_sources/dca/` and [CDPH healthcare facility locations](https://data.chhs.ca.gov/dataset/healthcare-facility-locations) in `data/state_sources/cdph/health_facility_locations.csv`.
 
-Free services called at run time: [US Census Geocoder](https://geocoding.geo.census.gov/geocoder/Geocoding_Services_API.html) (C5, C7) and Gemini (C5, needs `GEMINI_API_KEY`; skipped with `--offline`).
+Services called at run time: the [US Census Geocoder](https://geocoding.geo.census.gov/geocoder/Geocoding_Services_API.html) (C5, C7), and Gemini (C5, only with `GEMINI_API_KEY`).
 
-## Run step by step
+## 3. How the pipeline fits together
 
-`run_pipeline.py` runs exactly these commands. All paths default to locations relative to the repo root; every script prints `--help`. Run the steps in this order.
-
-```bash
-python pipeline/c1_parse_index.py
+```
+index files ──► C1 plans table ──► C2 PPO plans (names, codes)
+                    │                    │
+rate files ──► shared scan ──► C2b PPO prices per provider ──► C4 one rate per key ──┐
+                    │                                                                ├─► C6 provider rate file ─► C7 cost score
+                    └──► C3 quality scores (index + rate files)     C5 address ──────┘
 ```
 
-```bash
-python pipeline/c2_step1_ppo_names.py
-```
+- **The index files** list plans and point to rate files. C1 turns them into a table.
+- **A rate file** is shared by many plans, so the PPO network cannot be picked by choosing files. C2 decides which plans are PPO; C2b decides which prices inside the shared file are PPO prices.
+- **The shared scan** (`rate_scan.py`) reads each rate file once and stores its tables in `output/scan/`. C2b and C3 read those tables; nothing parses a rate file twice.
+- **C3** scores every index file and rate file for quality; it needs no PPO filter.
+- **C4, C5, C6, C7** work on the PPO provider population that C2b leaves: C4 picks one rate per service, C5 finds each provider's address, C6 joins them with the specialty, C7 scores the cost.
 
-```bash
-python pipeline/c2_step2_other_network_names.py
-```
+Each stage writes to its own folder under `output/`.
 
-```bash
-python pipeline/c2_step3_unlabelled_names.py
-```
+## 4. C1: parse the index files
 
-```bash
-python pipeline/c3_reference.py
-```
+`pipeline/c1_parse_index.py` → `output/c1/`
 
-```bash
-python pipeline/rate_scan.py --run-date 2026-10-18
-```
+1. Each index file is streamed one reporting structure at a time (`ijson`), so a multi-gigabyte index would not need more memory.
+2. A structure lists plans and the rate files they use. The script writes **one row per plan × in-network rate file**, keeping every published field and adding derived ones next to them.
+3. **Brand** comes from the index file name. **State** comes from the first available source: the rate file URL suffix, the HIOS state code, a state token in the plan name, or other plans of the same HIOS issuer. The source used is recorded.
+4. The **plan ID type** is checked against the ID's shape (EIN = 9 digits; HIOS = 5, 10, 14 or 16 characters). The published type is kept, the inferred type and a mismatch flag are added.
+5. Duplicate rows (same brand, name, ID, market and rate file) are removed and listed in `c1_duplicates_removed.csv`.
+6. A rate file table has one row per unique URL with a HEAD check (status, size, last modified). Nothing is downloaded.
+7. `c1_plans.csv` keeps every plan. `c1_plans_ca.csv` keeps the in-scope rows: California and market `group` (commercial group, confirmed by the organizers).
 
-```bash
-python pipeline/c2b_step1_groups.py
-```
+## 5. C2: find the PPO network
 
-```bash
-python pipeline/c2b_step2_name_labels.py
-```
+C2 has two parts: classify plans, then separate PPO prices inside the shared rate file.
 
-```bash
-python pipeline/c2b_step3_capitation.py
-```
+### 5.1 Plan classification (`c2_step1` to `c2_step3`, `c2_final_plans.py`)
 
-```bash
-python pipeline/c2b_step4_contract_dates.py
-```
+Each step sorts the in-scope plans by one kind of evidence; every rule is yes/no on explicit evidence.
 
-```bash
-python pipeline/c2b_step5_parallel_copies.py
-```
+1. **Step 1, PPO by name.** A plan name containing "PPO" anywhere, case-insensitive (so `CUSPPO` counts).
+2. **Step 2, another network by name or code.** HMO, EPO or POS in the name (a letter may come before the word, not after, so `POST` does not match), or a brand plan code listed as non-PPO in `reference/network_codes.csv`: `EOA` (Elect Open Access, an HMO-based hybrid) and `SAL` (Salud HMO). The code table gives each code, its source and its network type, so every code can be changed.
+3. **Step 3, no signal.** Everything the first two steps did not match, so the three sheets partition all plans.
+4. **Final.** `c2_final_plans.py` writes `c2_plan_network.csv`: each plan with its class, the evidence that decided it and the rule. A name with PPO and EPO (but no HMO/POS) is a PPO-network plan with an EPO benefit design, so it stays PPO.
 
-```bash
-python pipeline/c2b_export_kept.py
-```
+### 5.2 PPO prices inside the shared rate file (C2b)
 
-```bash
-python pipeline/c2b_step6_ppo_rates.py
-```
+All 456 PPO plans and the non-PPO plans point to one file, so the network is separated at the level of provider groups and single prices. Input is the shared scan.
 
-```bash
-python pipeline/c2_final_plans.py
-```
-
-C3 (file quality, all index and rate files; needs every rate file in `Data/rate_files/`, see `pipeline/download_rate_files.py`, and the CMS reference files unzipped into `Data/cms_ref/rvu26d/` and `Data/cms_ref/hcpcs_2026_10/` from https://www.cms.gov/files/zip/rvu26d-updated-08-26-2026.zip and https://www.cms.gov/files/zip/october-2026-alpha-numeric-hcpcs-file.zip):
-
-```bash
-python pipeline/c3_metrics.py --run-date 2026-10-18
-```
-
-```bash
-python pipeline/c3_index_metrics.py --run-date 2026-10-18
-```
-
-```bash
-python pipeline/c3_diagnose.py
-```
-
-```bash
-python pipeline/c3_report.py
-```
-
-C4 (reads the C2b step 6 output):
-
-```bash
-python pipeline/c4_select.py
-```
-
-C5 (reads the C2b step 6 output; offline run shown, full options in [C5](#c5-tinnpi--practice-address-pipeline)):
-
-```bash
-python pipeline/run_c5.py --estimate --dry-run
-```
-
-| Step | Reads | Writes |
+| Step | Script | What it does |
 |---|---|---|
-| C1 parse index files | `Data/*_index.json` | `output/c1/` (`c1_plans.csv`, `c1_plans_ca.csv`, `c1_rate_files.csv`, …) |
-| C2 step 1: PPO in the name | `output/c1/c1_plans_ca.csv` | `output/c2/c2_step1_ppo_name_plans.csv` |
-| C2 step 2: other network word or plan code | `output/c1/c1_plans_ca.csv`, `reference/network_codes.csv` | `output/c2/c2_step2_other_network_name_plans.csv` |
-| C2 step 3: no network signal | same | `output/c2/c2_step3_unlabelled_name_plans.csv` |
-| C3 reference tables | NPPES, deactivation report, HiLabs workbook, `Data/cms_ref/` (PFS RVU26D, HCPCS), CMS Doctors and Clinicians | `output/c3/ref/*.parquet` |
-| Shared scan (each rate file read once; C2b and C3 read it) | `output/c1/c1_rate_files.csv`, `Data/rate_files/` (`.json` or `.json.gz`) or the URLs with `--stream` | `output/scan/<file>_{members,groups,prices,refs}.parquet`, `<file>_stats.json` |
-| C2b step 1: provider group tables | `output/c1/c1_plans_ca.csv`, shared scan | `output/c2b/c2b_groups.parquet`, `c2b_group_summary.parquet` |
-| C2b step 2: business-name markers | step 1, `reference/business_name_labels.csv` | `output/c2b/c2b_step2_member_labels.csv`, `c2b_step2_group_name_labels.csv`, `c2b_step2_name_patterns.csv` |
-| C2b step 3: price table, capitation | `output/c1/c1_plans_ca.csv`, shared scan | `output/c2b/c2b_prices.parquet`, `c2b_step3_capitation_groups.csv` |
-| C2b step 4: contract dates, parallel copies | steps 1 and 3 (`--run-date`, default today) | `output/c2b/c2b_step4_copy_cases.parquet` |
-| C2b step 5: parallel-contract test per TIN–NPI | steps 1–3 | `output/c2b/c2b_step5_price_keys.parquet`, `c2b_step5_pair_key_copies.parquet`, `c2b_step5_group_copy_stats.csv` |
-| Export: data remaining after step 4 | steps 1–5 | `output/c2b/c2b_step4_kept_prices.csv` / `.parquet` |
-| C2b step 6: final PPO rates (closes C2b) | steps 1–5 | `output/c2b/c2b_ppo_rates.parquet` / `.csv`, `c2b_step6_dropped.csv` |
-| C2 final: plan class and evidence | C2 step sheets | `output/c2/c2_plan_network.csv` |
-| C3 rate-file metrics M1–M27 | scan, reference tables | `output/c3/c3_rate_file_metrics.csv`, `c3_rate_file_scores.csv`, `c3_rate_file_rollup.csv` |
-| C3 index metrics I1–I15, dataset scores | `Data/*_index.json`, rate-file scores, scan, reference tables | `output/c3/c3_index_metrics.csv`, `c3_index_scores.csv`, `c3_dataset_scores.csv` |
-| C3 diagnosis: problems ranked by severity, with fixes | all C3 outputs | `output/c3/c3_diagnosis.md`, `c3_diagnosis.csv` |
-| Deliverable 3: file quality metrics | all C3 outputs | `deliverables/03_file_quality_metrics.md`, `03_file_quality_scores.xlsx` |
-| C4 rate selection: one rate per TIN × NPI × code × additional information | `output/c2b/c2b_ppo_rates.parquet` | `output/c4/c4_chosen.parquet`, `c4_alternatives.parquet`, `c4_dropped_nonpositive.parquet`, `c4_key_audit.csv`, `c4_summary.json` |
-| C5 address mapping (WP0–WP9) | `output/c2b/c2b_ppo_rates.parquet`, NPPES, CMS DAC | `output/c5/` (see [Outputs](#outputs-outputc5)) |
+| Scan | `rate_scan.py` | Streams every rate file once into Parquet tables: provider members, provider groups, prices, references. Reads `.json`, `.json.gz` or a URL. |
+| 1 | `c2b_step1_groups.py` | Builds the provider group tables (one row per group member NPI) and a **member signature** per group: a hash of its sorted TIN–NPI pairs. Groups with equal signatures list exactly the same providers. |
+| 2 | `c2b_step2_name_labels.py` | Reads network markers in TIN business names from `reference/business_name_labels.csv` (one regex per row): strong PPO markers (`PPO: <County>`), strong exclusions (Ambetter PPO/HMO entries, SIMNSA), hints that decide nothing. A marker labels the **TIN entry**, not its whole group. If a group's `network_name` states a type, that is used first. |
+| 3 | `c2b_step3_capitation.py` | Builds the price table (one row per published price × group) and flags capitation prices, the HMO payment model. |
+| 4 | `c2b_step4_contract_dates.py` | Flags expired prices and counts parallel copies: the same member signature and service priced by two or more groups. The price key includes the code, sub-code (`additional_information`), arrangement, rate type, class, setting, place of service and modifier. |
+| 5 | `c2b_step5_parallel_copies.py` | Deduplicates prices (most rows are exact copies), then tests every **TIN–NPI × service** for parallel contracts: `single`, `identical_copies`, `within_group_variants`, `differing_copies`. |
+| Export | `c2b_export_kept.py` | Writes the data left after steps 2 to 4. |
+| 6 | `c2b_step6_ppo_rates.py` | Final table. Each row is dropped for the first reason that applies: excluded entry, capitation, expired, or parallel contract (the same provider and service at different rates in different groups, which may be different networks, so it is ambiguous). Everything else is kept as PPO, labelled `ppo_marker` or `unconflicted_rate`. Dropped rows go to `c2b_step6_dropped.csv` with their reason. |
 
-C2 steps run on all states with `--plans output/c1/c1_plans.csv`.
+The result is `output/c2b/c2b_ppo_rates.parquet`. Rate-file keys, networks and targets are options: `--network HMO` runs the same steps for another network.
 
-Run `python pipeline/c3_reference.py` (reference tables; its HCPCS list is used by the scan) and then `python pipeline/rate_scan.py` after C1 and before C2b: it reads every rate file once and C2b steps 1 and 3 and C3 use its tables. Other target networks: `--network HMO` on `c2_final_plans.py` and C2b steps 2, 5 and 6, with `--out`/`--dir output/c2b_hmo` (PPO is the default and keeps every current file name).
+## 6. C3: file quality scores
 
-## C4: rate selection
+Every index file and every rate file it links is scored from 0 to 1. Code: `c3_reference.py`, `c3_metrics.py`, `c3_index_metrics.py`, `c3_diagnose.py`, `c3_report.py`.
 
-`pipeline/c4_select.py` keeps one rate per key (TIN × NPI × billing code type × billing code × additional information). Rules run as a funnel, each only on keys that still have more than one distinct rate: network label, modifier (whole service first), place of service (office first), majority contract (rate carried by the most provider groups), then lowest rate (flagged `conflict_unresolved`). Every row not chosen goes to `c4_alternatives.parquet` with a reason. Parallel contracts are already dropped by C2b step 6; the majority-contract rule stays as a second check.
+1. **Reference tables** (`c3_reference.py`): NPPES (valid NPIs), deactivated NPIs, HiLabs codes and weights, the Medicare fee schedule, valid HCPCS and place-of-service codes, and the states where each NPI practises.
+2. **Rate-file metrics M1 to M27** are computed per file from the shared scan. Each metric gives a numerator, a denominator, a value and a score from 0 to 1.
+   - **Gate M1:** the file URL answers HTTP 200. An unreachable file scores 0.
+   - **Timeliness (10%):** days since update, lag from the index, contracts not expired.
+   - **Compliance (45%):** required fields, valid enumerations, conditional fields, reference integrity, valid billing codes, NPIs (check digit) and TINs (IRS prefix), place of service, rate types.
+   - **Plausibility (25%):** zero or negative rates, outliers against Medicare and within the file (IQR fences on log rates), NPIs found and active in NPPES, entity type against billing class.
+   - **Usability (20%):** duplicate rows, repeated items, share of HiLabs code weight covered, network named, unexplained rate conflicts, and the CMS guidance items. Provider coverage (M22) is reported, not scored.
+   - **File score** = M1 × the weighted average of the group scores. A group score is the plain average of its measured metrics; a metric that cannot be measured is left out and the weights are re-normalized.
+3. **Index metrics I1 to I15** use the same frame with Consistency (does the index agree with the files it links) in place of Plausibility, weights 10/45/15/30.
+4. **Dataset score** = index score^0.3 × (mean rate-file score)^0.7: the index and the files are links of one chain, so a zero in either gives zero.
+5. **Diagnosis** (`c3_diagnose.py`): turns the metric tables into a ranked list of problems per dataset with severity, why it matters and the fix, using fixed templates so the same inputs always give the same text.
+6. **Report** (`c3_report.py`): `deliverables/03_file_quality_metrics.md` and `03_file_quality_scores.xlsx` define every metric and list every score.
 
-## Layout
+## 7. C4: one rate per provider and service
+
+`pipeline/c4_select.py` reads `output/c2b/c2b_ppo_rates.parquet` and keeps one rate per key (TIN × NPI × billing code type × code × additional information). Only keys with more than one distinct rate need a decision. The rules run in order and each sees only the keys still unresolved:
+
+1. network label (a PPO-marked rate beats unmarked),
+2. modifier (the whole service, no modifier, first),
+3. place of service (office first),
+4. majority contract (the rate carried by the most provider groups),
+5. lowest rate, flagged `conflict_unresolved`.
+
+Output in `output/c4/`: `c4_chosen.parquet` (the kept rate), `c4_alternatives.parquet` (every other rate with the reason it lost), `c4_dropped_nonpositive.parquet`, `c4_key_audit.csv`, `c4_summary.json`.
+
+## 8. C5: practice address per TIN–NPI
+
+`pipeline/run_c5.py` runs work packages WP0 to WP9 in `pipeline/c5/`. It produces one practice address per TIN–NPI pair, labelled `verified`, `probable` or `unverified`. Settings, weights and paths are in `config/c5.yaml`; a snapshot with its SHA-256 hash is stored with every run.
+
+| Step | What it does |
+|---|---|
+| WP0 `wp0_readiness.py` | Checks the inputs, writes the source manifest (path, size, SHA-256), probes five NPIs. |
+| WP1 `wp1_targets.py` | Loads the TIN–NPI pairs from `c2b_ppo_rates`, resolves individual/organization from NPPES, flags deactivated NPIs. |
+| WP2 `wp2_claims.py`, `wp2_npi_registry.py`, `wp2_state_sources.py` | Collects **claims**: an address for an NPI from a source, with the source's date. NPPES primary, secondary and endpoint addresses; CMS Doctors and Clinicians (Medicare); California DCA licence files (individuals) and CDPH facility locations (organizations) when present. Each source belongs to a **family**; only different families count as independent evidence (NPPES primary/secondary/endpoint are one family, since all are self-reported). |
+| WP3 `wp3_sites.py` | Normalizes every address (USPS form), geocodes with the Census batch geocoder, and caches results on disk. Equal normalized addresses become one **site**. |
+| WP4 `wp4_tin_sites.py` | Builds each TIN's validated site set: sites shared by two or more of its NPIs, organization NPI sites, and Medicare group overlap. |
+| WP5 `wp5_candidates.py` | Makes candidates for each pair: the NPI's own sites, plus the TIN's sites when the TIN is small or the NPI has none. Scores each with an additive, transparent score: independent families (0.40), fit with the TIN's site set (0.25), freshness (0.20), geocode match, county, in-state (0.05 each). |
+| WP6 `wp6_choose.py` | Marks stale claims (a fresher claim from another family points elsewhere, or the site is over 100 km from every TIN site), picks the best candidate per pair, and labels it. **Verified:** two independent families agree and the newest evidence is at most 24 months old. **Probable:** supported but short of verified. **Unverified:** one weak or stale source. A looser profile (`label_loose`) is also written. |
+| WP7 `wp7_leftovers.py` | For pairs still unverified, an optional tiered extraction from allow-listed web pages: structured data first, then a batched Gemini call with a quote check and name proximity, under spend caps. The Gemini part runs only with `estimate_only: false`, probe URLs and `GEMINI_API_KEY`; otherwise WP7 only writes a prioritized leftover queue. |
+| WP8 `wp8_validation.py` | Draws a stratified 200-pair sample for manual audit. |
+| WP9 `wp9_summary.py` | Writes `c5_summary.json` with label counts, source contributions and run statistics. |
+
+Main outputs in `output/c5/`: `c5_addresses.csv` (one row per pair: address, label, loose label, score, evidence), `c5_candidates.parquet`, `c5_claims.parquet`, `c5_sites.parquet`, `c5_leftovers.csv`, `c5_summary.json`. Run options: `--estimate` (no model calls), `--dry-run` (disk cache only), `--probe-only`.
+
+## 9. C6: the provider rate file
+
+`pipeline/c6_provider_rate_file.py` joins three things into the main deliverable:
+
+- the **rate** from C4 (one row per C4 key),
+- the **address** from C5 (one address per TIN–NPI; other candidates go to a side table),
+- the **specialty** from NPPES taxonomies: for individuals, the first taxonomy (primary first) found in the HiLabs crosswalk; for organizations and individuals with no match, the NUCC classification of the primary taxonomy.
+
+Deactivated NPIs are removed (listed in `c6_dropped_deactivated.csv`). Other problems are flagged in `quality_flags`, not dropped: `unresolved_rate_conflict`, `no_address`, `address_unverified`, `non_dollar_type`, `specialty_unknown`, `invalid_npi`, `npi_not_in_nppes`.
+
+Outputs in `output/c6/`: `c6_provider_rates.parquet` and `.csv` (full file), `c6_provider_rates_excel_view.xlsx` (rows on HiLabs benchmark codes, fits Excel), side tables for alternative rates and addresses, `c6_summary.json`.
+
+## 10. C7: cost-effectiveness
+
+The C6 file gets a cost score per provider: is the provider cheaper or dearer than comparable providers for the same services?
+
+1. **Geocode** (`c7_geocode.py`): each unique practice address is geocoded once with the Census batch geocoder; unmatched addresses take the mean coordinates of their ZIP5, then ZIP3.
+2. **Regions** (`c7_cost_effectiveness.py`): California addresses are clustered by density (HDBSCAN) into metro regions for reporting.
+3. **Peer specialties**: `reference/peer_specialty.csv` maps the specialty labels to a peer specialty and a broader family, so differently spelled names for one specialty are merged.
+4. **Peers for each price**: other TINs only. A widening search runs until it holds at least 5 providers from at least 3 TINs: first the same peer specialty within 25, 50, 100, 200 km, then statewide, then the specialty family, then everyone. If that fails, the **service** is relaxed step by step (ignore descriptive modifiers, any place of service, any entity type, any sub-code, then the same code family or section, compared as a share of the Medicare fee). Modifiers that change the price (26, TC, equipment) always match. The level reached is stored per price.
+5. **Ratio**: each price divided by its peers' median, with flags above P75 and below P25; professional prices also get a percentage of the Medicare fee.
+6. **Provider cost index**: the weighted geometric mean of the ratios (weights from HiLabs code and specialty weights, scaled by how close the peers are), shrunk toward 1 for providers with few prices.
+7. **Label**: `lower_cost` (index at most 0.85), `higher_cost` (at least 1.15), `typical`, `insufficient_peers` (fewer than 3 compared prices), or `regional_average_only` (every price had no peers and used the regional average).
+8. **Final file** (`c7_final_output.py`): `output/c7/c7_final.csv` and `.xlsx`, one row per price with TIN, NPI, specialty, address, code, rate, and the provider's cost index and label ("score per price").
+
+`c7_specialty_suggest.py` is an optional check of the specialty table with a small embedding model; it does not change the table.
+
+## 11. Repository layout
 
 | Path | Contents |
 |---|---|
-| `pipeline/` | Pipeline steps (C1–C4 scripts, `run_c5.py`) |
-| `pipeline/c5/` | C5 work packages WP0–WP9 |
-| `config/c5.yaml` | C5 thresholds, weights and paths |
+| `run_pipeline.py` | One-command runner for the whole pipeline |
+| `download_c5_data.py` | Downloads the public inputs into `Data/` |
+| `pipeline/` | Stage scripts (`c1_*`, `c2_*`, `c2b_*`, `c3_*`, `c4_select.py`, `run_c5.py`, `c6_*`, `c7_*`, `rate_scan.py`), `run_summary.py` (headline metrics), `make_logic_pdf.py` (LOGIC.md to PDF) |
+| `pipeline/c5/` | C5 work packages WP0 to WP9 |
+| `config/c5.yaml` | C5 thresholds, weights, paths |
 | `prompts/` | C5 Gemini extraction prompts |
-| `tests/` | C5 unit tests (`pytest`) |
-| `reference/network_codes.csv` | Brand-specific plan codes (Health Net EOA, SAL) with sources |
-| `reference/business_name_labels.csv` | Network markers in TIN business names (C2b step 2) |
-| `experiments/state_sources_trial/` | C5 trial of state licensing and facility sources |
-| `download_c5_data.py` | Downloads C5's NPPES and CMS inputs |
+| `reference/` | Editable tables: plan codes, business-name markers, network names, peer specialties |
+| `tests/` | C5 unit tests |
+| `output/` | Everything the pipeline writes (git-ignored), one folder per stage; `RUN_SUMMARY.md` has the headline numbers |
+| `deliverables/` | Deliverable 3, file quality metrics |
+| `LOGIC.md`, `LOGIC.pdf` | Scope, assumptions and every rule with its reason |
+| `handoff/`, `docs/`, `experiments/` | Team guides and findings, plan diagrams and future work, side experiments |
 
-Kept in the team's working copy, not on this branch:
+## 12. Conventions and tests
 
-| Path | Contents |
-|---|---|
-| `LOGIC.md` | Logic deliverable: scope, assumptions, rules with reasons, results |
-| `handoff/` | Team guides, data sources, findings, shared data snapshots |
-| `handoff/test_set_C5/` | C5 test set: 707 TIN–NPI pairs with independent truth addresses, scorer, NPPES baseline (see `RESULTS.md`) |
-| `docs/diagrams/` | Plan diagrams (SVG) |
-| `docs/FUTURE_WORK.md` | Deferred work (e.g. resolving parallel contracts) with what is known and how to pick it up |
-| `experiments/network_inference/` | Test: inferring network type when plan names don't say it (see `RESULTS.md`) |
-| `experiments/centene_pd/` | Centene FHIR directory coverage test (blocked, HTTP 403) |
-| `.github/workflows/` | Manually triggered coverage-test workflow |
-
-C6 (provider rate file; needs the C4 and C5 outputs in `output/c4/` and `output/c5/`, plus NPPES and the HiLabs workbook in `Data/`):
+- Large files are streamed or scanned with DuckDB; nothing loads the full NPPES CSV or a whole rate file into memory.
+- Identifiers stay text: NPI as 10 digits, TIN with a dash (`94-1156581`).
+- Large outputs are Parquet; CSV only for small tables.
+- Every script accepts `--help`; paths default relative to the repository root.
+- Reference tables hold the decisions that might change (plan codes, name markers, peer specialties) so a change needs a table edit, not a code edit.
+- Outputs are deterministic: list columns are sorted, so two runs of the same code give identical files.
 
 ```bash
-python pipeline/c6_provider_rate_file.py
-```
-
-Writes `output/c6/c6_provider_rates.parquet` and `.csv` (full file), `c6_provider_rates_excel_view.xlsx` (HiLabs codes only), side tables for alternative rates and addresses, and `c6_summary.json`.
-
-C7 (cost-effectiveness; needs the C5 addresses, the C6 file and the C3 reference tables; the geocoder calls the free Census batch service):
-
-```bash
-python pipeline/c7_geocode.py
-```
-
-```bash
-python pipeline/c7_cost_effectiveness.py
-```
-
-Writes `output/c7/c7_geocode.parquet`, `c7_address_geo.parquet`, `c7_price_ratios.parquet` (each price with its peer group, level and ratios), `c7_npi_cost.parquet` / `.csv` and `c7_tin_cost.parquet` / `.csv` (cost index and label), and `c7_summary.json`. `reference/peer_specialty.csv` maps specialties to peer groups.
-
-Final file (one row per price with TIN, NPI, specialty, address, billing code, rate, and the provider's cost-effectiveness score and label):
-
-```bash
-python pipeline/c7_final_output.py
-```
-
-Writes `output/c7/c7_final.csv` and `.xlsx`.
-
-Optional check of the specialty table with a small embedding model (downloads `BAAI/bge-small-en-v1.5` on first use):
-
-```bash
-python pipeline/c7_specialty_suggest.py
-```
-
-## C5: TIN/NPI → Practice Address Pipeline
-
-**Goal.** Produce one verified/probable/unverified practice address per TIN–NPI pair from the Centene California rate files, using NPPES and CMS DAC as evidence sources, validated via the US Census Geocoder.
-
-### Quick start
-
-```bash
-# 1. Create and activate the venv
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Copy and fill in environment variables
-cp .env.example .env
-# Edit .env and set your GEMINI_API_KEY (from Google AI Studio):
-# GEMINI_API_KEY=your_key_here
-
-# 4. Configure web fetch allowlist and probe URLs in config/c5.yaml
-# Add permitted payer/web domains and 3-5 real provider result URLs to probe:
-# web_fetch_allowlist:
-#   - healthnet.com
-#   - search.dca.ca.gov
-# probe_urls:
-#   healthnet.com:
-#     - "https://www.healthnet.com/provider-sample-1"
-#     - "https://www.healthnet.com/provider-sample-2"
-
-# 5. Run domain probe only (verifies gates, writes c5_domain_probe.csv)
-python pipeline/run_c5.py --probe-only
-
-# 6. Run in estimate mode (Tiers 0 & 1 only, estimates Gemini calls needed, zero model spend)
-python pipeline/run_c5.py --estimate
-
-# 7. Run full C5 Address Mapping pipeline
-python pipeline/run_c5.py
-
-# 8. Offline replay (idempotent run; hits disk cache with zero network/API calls)
-python pipeline/run_c5.py --dry-run
-
-# 9. Run unit tests
 pytest tests/test_c5.py -v
 ```
-
-All parameters, weights, and file paths are fully configurable in `config/c5.yaml`.
-A snapshot of the configuration (with its SHA-256 hash) is stored with every run.
-
-### Adding Probe URLs, Templates, and Domains
-
-#### 1. Adding Allowlisted Domains
-In `config/c5.yaml`, add the domain under `web_fetch_allowlist` and its family (`payer` or `web`) under `web_fetch_domain_family`:
-```yaml
-web_fetch_allowlist:
-  - healthnet.com
-  - search.dca.ca.gov
-web_fetch_domain_family:
-  healthnet.com: payer
-  search.dca.ca.gov: web
-```
-
-#### 2. Supplying Probe URLs (Gate Requirement)
-Every allowlisted domain must be probed before live lookups can occur. Supply 3 to 5 real provider search result URLs copied from a browser under `probe_urls`:
-```yaml
-probe_urls:
-  healthnet.com:
-    - "https://www.healthnet.com/portal/provider/searchResult.do?..."
-```
-If `probe_urls` is empty, the domain is marked `unprobed`, lookups halt cleanly, and human instructions with the priority TIN list are written to `output/c5/c5_leftovers.csv`.
-
-#### 3. Adding URL Templates
-Supply URL templates with placeholders (`{npi}`, `{tin}`, `{name_slug}`, `{city_slug}`, `{zip5}`):
-```yaml
-url_templates:
-  dca_license: "https://search.dca.ca.gov/details/{npi}"
-```
-Missing placeholders skip template generation without errors. Search-based discovery is strictly prohibited (`discovery_search_enabled: false`).
-
-### Pipeline steps
-
-| Step | Code | Description |
-|------|------|-------------|
-| WP0 | `wp0_readiness.py` | Environment check, file verification, source manifest (`c5_sources_manifest.json`), 5-NPI probe |
-| WP1 | `wp1_targets.py` | Load target TIN-NPI population reconciled against C2b step 6 (`c2b_ppo_rates`), resolve entity types, deactivation check |
-| WP2 | `wp2_claims.py` | Extract evidence claims (NPPES primary + secondary + endpoints = `nppes_self`; CMS DAC = `medicare`; CA DCA = `state_license`; CDPH = `state_facility`) |
-| WP3 | `wp3_sites.py` | USPS address normalization, Census batch geocoding, persistent disk cache |
-| WP4 | `wp4_tin_sites.py` | Build validated TIN site sets (org NPI support, provider consensus, Medicare group overlap) |
-| WP5 | `wp5_candidates.py` | Candidate generation and 6-factor weighted scoring |
-| WP6 | `wp6_choose.py` | Stale & conflict checks, winner selection, verified/probable/unverified labelling (strict & loose profiles) |
-| WP7 | `wp7_leftovers.py` | Domain probe gate + Tiered extraction: Tier 0 (deterministic confirm), Tier 1 (JSON-LD, microdata, `<address>`), Tier 2 (batched Gemini 2.5 Flash with quote-check, name proximity, spend caps) |
-| WP8 | `wp8_validation.py` | Stratified 200-pair audit calibration sample with state-source strata |
-| WP9 | `wp9_summary.py` | Write `c5_summary.json` with state source contributions, before/after comparison, and run statistics |
-
-## State Data Sources (DCA & CDPH)
-
-To expand verification without unconstrained scraping, C5 incorporates two official California state bulk sources:
-- **California DCA Licensee Bulk Files (Individuals):** Downloaded from the DCA public Box share into `data/state_sources/dca/`. Joined on normalized license numbers and verified legal last names.
-- **CDPH Healthcare Facility Locations (Organizations):** Downloaded from CHHS Open Data into `data/state_sources/cdph/health_facility_locations.csv`. Matched via NPI, Name + ZIP, and Name + City.
-
-For manual-drop download instructions, see `output/c5/c5_source_instructions.md`.
-
-### Labelling rules
-
-| Label | Condition |
-|-------|-----------|
-| **verified** (strict) | ≥ 2 independent source families agree on the site AND newest evidence date ≤ 24 months |
-| **verified** (loose) | ≥ 1 fresh independent family agree on site AND TIN site fit score $s_{\text{tin\_fit}} \ge 0.25$ (`label_loose`) |
-| **probable** | Supported but short of verified (e.g. 1 fresh source + TIN site set match, or 2 families but not fresh) |
-| **unverified** | Single weak source, stale-only, or no candidate found in bulk sources |
-
-**Source Family Independence Rules (R5.1, R5.8):**
-- NPPES primary, secondary (`pl`), and endpoints (`ep`) all belong to family `nppes_self`.
-- CMS DAC belongs to family `medicare`.
-- California DCA licensee bulk files belong to family `state_license` (independent).
-- CDPH healthcare facility locations belong to family `state_facility` (independent).
-- Web fetcher families: `payer_directory` (independent), `org_website` (independent), `web_aggregator` (**never independent** of `nppes_self` since aggregators derive provider records from NPPES).
-
-### Outputs (`output/c5/`)
-
-| File | Contents |
-|------|----------|
-| `c5_addresses.csv` | One row per TIN–NPI (3,780 rows): best address + strict `label` + loose `label_loose` + score + evidence |
-| `c5_candidates.parquet` | Scored candidates per TIN–NPI (8,155 rows) |
-| `c5_tin_sites.parquet` | Validated TIN site sets (5,440 relationships across 2,888 TINs) |
-| `c5_sites.parquet` | Normalized physical address sites with coordinates |
-| `c5_leftovers.csv` | Prioritized queue of unverified pairs ordered by TIN size descending |
-| `c5_source_contribution.csv` | Individual vs Organization verification metrics for DCA and CDPH |
-| `c5_source_disagreements.csv` | Top-50 TIN discrepancies between state claims and winning addresses |
-| `c5_source_instructions.md` | Download links and verification steps for state sources |
-| `c5_lookup_log.csv` | Audit log of every web fetch attempt (status, response size, refusal reason) |
-| `c5_llm_log.csv` | Audit log of every Gemini API call (prompt tokens, duration, status, reason code) |
-| `c5_calibration_sample.csv` | 200-pair stratified sample for manual audit (includes state-supported strata) |
-| `c5_sources_manifest.json` | Provenance for every input file (path, file size, SHA-256) |
-| `c5_config_snapshot.yaml` | Exact configuration used for the run with SHA-256 hash |
-| `c5_summary.json` | Key verification counts, shares, before/after comparison, and metadata |
-
-### Data sources required
-
-Place these under `Data/` in the repo root:
-
-| File | Size | Source |
-|------|------|--------|
-| `NPPES_Data_Dissemination_October_2026_V2/npidata_pfile_20050523-20261011.csv` | 11 GB | Provided by organizers |
-| `NPPES_Data_Dissemination_October_2026_V2/pl_pfile_20050523-20261011.csv` | 117 MB | Provided by organizers |
-| `NPPES_Data_Dissemination_October_2026_V2/endpoint_pfile_20050523-20261011.csv` | 121 MB | Provided by organizers |
-| `NPPES Deactivated NPI Report 20261012.xlsx` | 5.4 MB | Provided by organizers |
-| `DAC_NationalDownloadableFile.csv` | ~500 MB | [data.cms.gov dataset mj5m-pzi6](https://data.cms.gov/provider-data/dataset/mj5m-pzi6) |
-| `data/state_sources/dca/*.tsv` | ~250 MB | California DCA Public Box Folder (Medical Board, Nursing, etc.) |
-| `data/state_sources/cdph/health_facility_locations.csv` | 6.9 MB | CHHS Open Data Portal |
-
-Target TIN–NPI pairs are read from the C2b step 6 output `output/c2b/c2b_ppo_rates.parquet` (`paths.targets` in `config/c5.yaml`).
-
-### Module layout
-
-| File | Purpose |
-|------|---------|
-| `pipeline/run_c5.py` | Top-level CLI entrypoint (`--config`, `--dry-run`) |
-| `pipeline/c5/run_all.py` | Master pipeline orchestrator connecting WP0–WP9 |
-| `pipeline/c5/common.py` | Shared configuration, schemas, hash snapshot, and ID formatters |
-| `pipeline/c5/wp0_readiness.py` | WP0: Setup validation, source manifest generation, 5-NPI probe |
-| `pipeline/c5/wp1_targets.py` | WP1: Load Health Net CA targets, entity types, deactivation flags |
-| `pipeline/c5/wp2_claims.py` | WP2: Load evidence claims (NPPES primary/pl/ep, CMS DAC, PO box flags, state sources) |
-| `pipeline/c5/wp2_state_sources.py` | WP2: State sources ingestion (DCA bulk files for individuals, CDPH facilities for orgs) |
-| `pipeline/c5/wp3_sites.py` | WP3: USPS address normalization, Census batch geocoding, disk cache |
-| `pipeline/c5/wp4_tin_sites.py` | WP4: TIN site set construction (org NPI, consensus, Medicare group) |
-| `pipeline/c5/wp5_candidates.py` | WP5: Candidate generation and additive feature scoring |
-| `pipeline/c5/wp6_choose.py` | WP6: Stale & conflict checks, winner selection, strict/loose labelling, disagreement logging |
-| `pipeline/c5/wp7_leftovers.py` | WP7: Unverified leftover queue prioritized by TIN size, quote check |
-| `pipeline/c5/wp8_validation.py` | WP8: Stratified calibration sample generation and precision metrics |
-| `pipeline/c5/wp9_summary.py` | WP9: Comprehensive execution summary, state contribution metrics, before/after diff |
-
-### Conventions (per project LOGIC.md)
-
-- Stream large files; never load the full NPPES CSV into memory (DuckDB scans in ~14 s).
-- Keep identifiers as text: NPI (10 digits, zero-padded), TIN with dash (`94-1156581`).
-- Write large outputs as Parquet; CSV only for small tables.
-- Every script accepts `--help` with path arguments defaulting relative to the repo root.
-- Each step writes `c5_summary.json` with key counts.

@@ -7,6 +7,7 @@ Cache guarantee: a second run makes zero network calls.
 """
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import re
@@ -101,8 +102,7 @@ def _geocode_batch(batch: pd.DataFrame) -> list[dict]:
             CENSUS_URL,
             files={"addressFile": ("addrs.csv", data, "text/csv"),
                    "benchmark":   (None, CENSUS_BENCH),
-                   "vintage":     (None, "Current_Current"),
-                   "format":      (None, "json")},
+                   "vintage":     (None, "Current_Current")},
             timeout=120,
         )
         resp.raise_for_status()
@@ -110,21 +110,23 @@ def _geocode_batch(batch: pd.DataFrame) -> list[dict]:
         log.warning(f"  Census Geocoder request failed: {exc}")
         return []
 
+    # Response (CSV): id, input, match, match type, matched address, "lon,lat", tiger id, side,
+    # state fips, county fips, tract, block.
     results = []
-    for line in resp.text.splitlines():
-        if not line.strip():
+    for fields in csv.reader(io.StringIO(resp.text)):
+        if len(fields) < 3:
             continue
-        fields = line.split(",")
-        if len(fields) < 9:
-            continue
-        uid         = fields[0].strip()
-        matched     = fields[2].strip() == "Match"
-        match_addr  = fields[4].strip().strip('"') if matched else ""
-        lat         = float(fields[7]) if matched and fields[7].strip() else None
-        lon         = float(fields[8]) if matched and fields[8].strip() else None
-        county_fips = fields[6].strip() if matched and len(fields) > 6 else ""
-        results.append({"_uid": uid, "matched": matched, "match_address": match_addr,
-                         "lat": lat, "lon": lon, "county_fips": county_fips})
+        matched = fields[2].strip() == "Match"
+        lon = lat = None
+        if matched and len(fields) > 5 and "," in fields[5]:
+            try:
+                lon, lat = (float(x) for x in fields[5].split(","))
+            except ValueError:
+                matched = False
+        county_fips = (fields[8].strip() + fields[9].strip()) if matched and len(fields) > 9 else ""
+        results.append({"_uid": fields[0].strip(), "matched": matched,
+                        "match_address": fields[4].strip() if matched and len(fields) > 4 else "",
+                        "lat": lat, "lon": lon, "county_fips": county_fips})
     return results
 
 
