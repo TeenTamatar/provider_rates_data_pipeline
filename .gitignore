@@ -9,8 +9,6 @@ env/
 # Python cache & artifacts
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 *$py.class
 *.so
 .pytest_cache/
@@ -19,28 +17,25 @@ __pycache__/
 # Jupyter checkpoints
 .ipynb_checkpoints/
 
-# Data directories, large files & symlinks
-# (C4's committed parquet files and outputs/c4/ stay tracked; these rules only
-# stop new files from being added.)
-Data
-Data/
+# Data directories, downloads & temp files
+/Data/
 .download_cache/
 rate_files/
 *.zip
-*.parquet
-*.xlsx
 *.tmp
 
+# Generated outputs (C1-C3, C5 write to output/; C4 writes to outputs/c4/)
+/output/
+/outputs/
+*.parquet
+# C4's input from C2b step 4; no script in this repo writes it yet
+!/c2b_step4_kept_prices.parquet
+
 # Symlinks to other repos / handoff
-hilabs-provider-rates
-handoff
+/hilabs-provider-rates
+/handoff
 
-# Pipeline output
-output/
-output/*
-outputs/
-
-# Logs, OS & temp files
+# Logs & OS files
 *.log
 .DS_Store
 Thumbs.db
