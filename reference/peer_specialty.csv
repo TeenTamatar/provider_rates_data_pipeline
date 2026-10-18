@@ -1,0 +1,98 @@
+specialty,peer_specialty,peer_family
+Allergy & Immunology,allergy_immunology,medical_specialist
+Allergy and Immunology,allergy_immunology,medical_specialist
+Ambulance,ambulance,facility_other
+Anesthesiology,anesthesiology,hospital_based_physician
+Audiologist-Hearing Aid Fitter,audiology,allied_health
+Behavior Analyst,behavior_analyst,behavioral_nonphysician
+Behavioral Health - APRN,nurse_practitioner,midlevel
+Cardiology,cardiology,medical_specialist
+Case Management,care_coordination,allied_health
+Case Manager/Care Coordinator,care_coordination,allied_health
+Clinic/Center,clinic_center,clinic
+Clinical Medical Laboratory,laboratory,diagnostic
+Colon & Rectal Surgery,colorectal_surgery,surgical_specialist
+Community/Behavioral Health,behavioral_health_facility,facility_other
+Counselor,counselor,behavioral_nonphysician
+Counselor - Addiction,counselor,behavioral_nonphysician
+Dentist,dental,dental
+Dermatology,dermatology,medical_specialist
+"Dietitian, Registered",nutrition,allied_health
+Doula,doula,allied_health
+Durable Medical Equipment & Medical Supplies,dme_supplier,supplier
+ENT/Otolaryngology,otolaryngology,surgical_specialist
+Early Intervention Provider Agency,early_intervention,facility_other
+Emergency Medicine,emergency_medicine,hospital_based_physician
+Exclusive Provider Organization,network_entity,other
+Endocrinology,endocrinology,medical_specialist
+Family Medicine,family_general_practice,primary_care
+Gastroenterology,gastroenterology,medical_specialist
+General Acute Care Hospital,acute_hospital,hospital
+General Practice,family_general_practice,primary_care
+General Surgery,general_surgery,surgical_specialist
+"Gynecology, OB/GYN",obstetrics_gynecology,surgical_specialist
+Health Maintenance Organization,network_entity,other
+Home Health,home_health,home_health
+Home Infusion,home_infusion,home_health
+Hospitalist,hospitalist,hospital_based_physician
+Infectious Diseases,infectious_diseases,medical_specialist
+Internal Medicine,internal_medicine,primary_care
+"Lactation Consultant, Non-RN",allied_other,allied_health
+Legal Medicine,other_physician,other
+Marriage & Family Therapist,marriage_family_therapist,behavioral_nonphysician
+Marriage and Family Therapist,marriage_family_therapist,behavioral_nonphysician
+Nephrology,nephrology,medical_specialist
+Neurological Surgery,neurosurgery,surgical_specialist
+Neurology,neurology,medical_specialist
+Neuromusculoskeletal Medicine & OMM,physical_medicine_rehab,medical_specialist
+"Neuromusculoskeletal Medicine, Sports Medicine",physical_medicine_rehab,medical_specialist
+Neurosurgery,neurosurgery,surgical_specialist
+Nuclear Medicine,nuclear_medicine,diagnostic
+"Nurse Anesthetist, Certified Registered",nurse_anesthetist,midlevel
+Nurse Practitioner,nurse_practitioner,midlevel
+Obstetrics & Gynecology,obstetrics_gynecology,surgical_specialist
+Occupational Therapist,occupational_therapy,therapy
+Ophthalmology,ophthalmology,surgical_specialist
+Orthopaedic Surgery,orthopaedic_surgery,surgical_specialist
+Otolaryngology,otolaryngology,surgical_specialist
+Pain Medicine,pain_medicine,medical_specialist
+Pathology,pathology,diagnostic
+Pediatrics,pediatrics,primary_care
+Personal Emergency Response Attendant,other_supplier,supplier
+Pharmacy,pharmacy,supplier
+Physical Medicine & Rehabilitation,physical_medicine_rehab,medical_specialist
+Physical Therapist,physical_therapy,therapy
+Physical Therapy,physical_therapy,therapy
+Physiological Laboratory,laboratory,diagnostic
+Plastic Surgery,plastic_surgery,surgical_specialist
+Podiatrist,podiatry,surgical_specialist
+Podiatry,podiatry,surgical_specialist
+Preferred Provider Organization,network_entity,other
+Preventive Medicine,other_physician,other
+Primary Care,family_general_practice,primary_care
+Primary Care (Pediatric),pediatrics,primary_care
+Primary Care - Midlevel,nurse_practitioner,midlevel
+Prosthetic/Orthotic Supplier,prosthetic_orthotic,supplier
+Psychiatric Hospital,psychiatric_facility,facility_other
+Psychiatric Residential Treatment Facility,residential_facility,facility_other
+Psychiatric Unit,psychiatric_facility,facility_other
+Psychiatry,psychiatry_neurology,medical_specialist
+Psychiatry & Neurology,psychiatry_neurology,medical_specialist
+Psychoanalyst,psychologist,behavioral_nonphysician
+Psychologist,psychologist,behavioral_nonphysician
+Pulmonology,pulmonology,medical_specialist
+Radiologic Technologist,radiologic_technologist,diagnostic
+Radiology,radiology,diagnostic
+Registered Nurse,allied_other,allied_health
+Rehabilitation Hospital,rehab_facility,facility_other
+"Rehabilitation, Substance Use Disorder Unit",substance_use_facility,facility_other
+"Residential Treatment Facility, Physical Disabilities",residential_facility,facility_other
+Rheumatology,rheumatology,medical_specialist
+Social Worker,social_worker,behavioral_nonphysician
+Special Hospital,other_facility,facility_other
+Specialist,other_physician,other
+Speech-Language Pathologist,speech_language_pathology,therapy
+Substance Abuse Rehabilitation Facility,substance_use_facility,facility_other
+Surgery,general_surgery,surgical_specialist
+Thoracic Surgery (Cardiothoracic Vascular Surgery),cardiothoracic_surgery,surgical_specialist
+Urology,urology,surgical_specialist
