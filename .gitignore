@@ -1,0 +1,25 @@
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Downloaded data and large generated files
+# (see data/MANIFEST.json for provenance of downloaded files)
+data/
+output/
+outputs/
+cache/
+
+# Parquet files and compressed index files
+*.parquet
+*.json.gz
+2026-*_index.json
