@@ -97,13 +97,13 @@ geocode_benchmark: Public_AR_Current  # Census benchmark name
 # ── Paths ─────────────────────────────────────────────────────────────────────
 paths:
   # Inputs
-  targets:        ../hilabs-provider-rates/handoff/data/rate_file_providers.csv
-  nppes_main:     ../Data/NPPES_Data_Dissemination_October_2026_V2/npidata_pfile_20050523-20261011.csv
-  nppes_pl:       ../Data/NPPES_Data_Dissemination_October_2026_V2/pl_pfile_20050523-20261011.csv
-  nppes_ep:       ../Data/NPPES_Data_Dissemination_October_2026_V2/endpoint_pfile_20050523-20261011.csv
-  nppes_deact:    ../Data/NPPES Deactivated NPI Report 20261012.xlsx
-  cms_dac:        ../Data/DAC_NationalDownloadableFile.csv
-  nucc_taxonomy:  ../Data/nucc_taxonomy_261.csv
+  targets:        handoff/data/rate_file_providers.csv
+  nppes_main:     Data/NPPES_Data_Dissemination_October_2026_V2/npidata_pfile_20050523-20261011.csv
+  nppes_pl:     Data/NPPES_Data_Dissemination_October_2026_V2/pl_pfile_20050523-20261011.csv
+  nppes_ep:     Data/NPPES_Data_Dissemination_October_2026_V2/endpoint_pfile_20050523-20261011.csv
+  nppes_deact:     Data/NPPES Deactivated NPI Report 20261012.xlsx
+  cms_dac:     Data/DAC_NationalDownloadableFile.csv
+  nucc_taxonomy:     Data/nucc_taxonomy_261.csv
 
   # Intermediate (Parquet)
   c5_targets:     output/c5/c5_targets.parquet
@@ -126,7 +126,7 @@ paths:
   c5_suggested_domains: output/c5/c5_suggested_domains.csv
   prompt_template: prompts/c5_extract_v1.txt
   prompt_template_v2: prompts/c5_extract_v2.txt
-  c2b_ppo_rates:  ../hilabs-provider-rates/handoff/data/c2b_ppo_rates.parquet
+  c2b_ppo_rates:  output/c2b/c2b_ppo_rates.parquet
   geocode_cache:  output/c5/geocode_cache.parquet
   config_snapshot: output/c5/c5_config_snapshot.yaml
   sources_manifest: output/c5/c5_sources_manifest.json
