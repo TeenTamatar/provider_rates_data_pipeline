@@ -160,7 +160,7 @@ def main():
         "npis_specialty_unknown": int((spec[spec["npi"].isin(final["NPI"])]["specialty"] == "Unknown").sum()),
         "entity_type_by_npi": spec[spec["npi"].isin(final["NPI"])]["entity_type"].value_counts().to_dict(),
         "rows_unresolved_rate_conflict": int(final["quality_flags"].str.contains("unresolved_rate_conflict").sum()),
-        "duplicate_keys": int(final.duplicated(keys + ["billing_class", "setting", "service_code", "billing_code_modifier"]).sum()),
+        "duplicate_keys": int(final.duplicated(keys).sum()),
         "alternative_rate_rows": len(alt), "alternative_address_rows": len(cand),
     }
     (out / "c6_summary.json").write_text(json.dumps(summary, indent=2, default=int))
