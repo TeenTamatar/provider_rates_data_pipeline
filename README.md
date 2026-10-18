@@ -224,7 +224,7 @@ The C6 file gets a cost score per provider: is the provider cheaper or dearer th
 | `reference/` | Editable tables: plan codes, business-name markers, network names, peer specialties |
 | `tests/` | C5 unit tests |
 | `output/` | Everything the pipeline writes (git-ignored), one folder per stage; `RUN_SUMMARY.md` has the headline numbers |
-| `deliverables/` | Final deliverables: provider rate file (01), logic file (02), file quality metrics (03), cost-effectiveness (04), video script (05), run summary; index in `deliverables/README.md` |
+| `deliverables/` | Final deliverables: provider rate file (01), logic file (02), file quality metrics (03), cost-effectiveness (04), run summary; index in `deliverables/README.md` |
 | `LOGIC.md`, `LOGIC.pdf` | Scope, assumptions and every rule with its reason |
 | `handoff/`, `docs/`, `experiments/` | Team guides and findings, plan diagrams and future work, side experiments |
 

@@ -9,7 +9,6 @@ Final outputs of the latest full run (2026-10-18). Each file is a copy of what t
 | `03_file_quality_metrics.md`, `03_file_quality_scores.xlsx` | File quality score: every metric, how it is calculated and why, and the score of every index and rate file. | `pipeline/c3_report.py` |
 | `04_cost_effectiveness_by_provider.csv` | Cost index and label per TIN–NPI pair (3,722 rows). | `output/c7/c7_npi_cost.csv` |
 | `04_cost_effectiveness_by_tin.csv` | Cost index and label per TIN (2,846 rows). | `output/c7/c7_tin_cost.csv` |
-| `05_video_script.md`, `05_video_narration.md` | Script and narration for the walkthrough video (max 5 minutes). | |
 | `RUN_SUMMARY.md` | Headline numbers of the run. | `output/RUN_SUMMARY.md` |
 
 How each stage works is in the repository [README](../README.md).
