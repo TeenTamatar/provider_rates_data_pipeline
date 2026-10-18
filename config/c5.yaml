@@ -21,6 +21,7 @@ site_consensus_min_npis: 2            # Min NPIs at a site for it to enter the T
 
 # ── Labelling rules ───────────────────────────────────────────────────────────
 verified_min_independent_families: 2  # Need at least this many independent families for verified
+loose_tin_fit_threshold: 0.25         # Min s_tin_fit for loose verification with 1 fresh family
 
 # ── LLM (Gemini Backend & Spend Controls) ─────────────────────────────────────
 llm_enabled: true
@@ -78,17 +79,109 @@ score_weights:
   w_geocode:   0.05   # Census geocoder matched (1) vs not (0)
   w_county:    0.05   # Address county matches TIN county label
   w_in_state:  0.05   # Address is in target state (CA)
+  w_solo_nppes: 0.20  # Primary NPPES baseline weight for solo practitioners
 
 # ── Source families (do not add to this without updating LOGIC.md) ─────────────
 # Only different families count as independent evidence.
 # Note: web_aggregator never counts as independent of nppes_self.
 source_families:
-  nppes_self:      [nppes_primary, nppes_secondary, nppes_endpoint]
+  nppes_self:      [nppes_primary, nppes_secondary, nppes_endpoint, nppes_registry_live, nppes_endpoint_live]
   nppes_org:       [nppes_org_primary, nppes_org_secondary]
   medicare:        [cms_dac]
   payer:           [payer_directory]
   web:             [org_website]
   web_aggregator:  [aggregator_directory]
+  state_license:   [dca_license_bulk]
+  state_facility:  [cdph_facility]
+
+# ── State Regulatory & Facility Sources ──────────────────────────────────────
+manual_drop: true
+state_filter: CA
+contact_email: "data-engineering@hilabs-rate-pipeline.local"
+
+sources:
+  npi_registry_live:
+    enabled: true
+    max_workers: 40
+
+  dca_license_bulk:
+    url: "https://www.dca.ca.gov/boxToken/getToken"
+    box_folder_url: "https://dca.box.com/s/oss6hf8jys2bmgxqd2gdz7w4oepm2il9"
+    local_dir: "data/state_sources/dca"
+    boards:
+      - MedicalBoard
+      - RegisteredNursing
+      - BehavioralSciences
+      - Psychology
+      - PodiatricMedical
+    key_columns:
+      agency_code: "Agency Code"
+      agency_name: "Agency Name"
+      lic_type_code: "LicTypeCode"
+      license_type: "License Type"
+      license_number: "License Number"
+      indiv_org: "Indiv/Org"
+      last_name: "Org/Last Name"
+      first_name: "First Name"
+      middle_name: "Middle Name"
+      suffix: "Suffix"
+      addr1: "Address Line 1"
+      addr2: "Address Line 2"
+      city: "City"
+      county: "County"
+      state: "State"
+      zip: "Zip"
+      country: "Country"
+      issue_date: "Original Issue Date"
+      expiration_date: "Expiration Date"
+      license_status: "License Status"
+    as_of_date: "2026-10-01"
+
+  cdph_facility:
+    url: "https://data.chhs.ca.gov/dataset/3b5b80e8-6b8d-4715-b3c0-2699af6e72e5/resource/f0ae5731-fef8-417f-839d-54a0ed3a126e/download/health_facility_locations.csv"
+    local_dir: "data/state_sources/cdph"
+    key_columns:
+      fac_id: "FACID"
+      fac_name: "FACNAME"
+      business_name: "BUSINESS_NAME"
+      fac_type: "FAC_FDR"
+      status: "FAC_STATUS_TYPE_CODE"
+      address: "ADDRESS"
+      city: "CITY"
+      zip: "ZIP"
+      county: "COUNTY_NAME"
+      npi: "NPI"
+      lat: "LATITUDE"
+      lon: "LONGITUDE"
+      data_date: "DATA_DATE"
+      license_status: "LICENSE_STATUS_DESCRIPTION"
+    as_of_date: "2026-10-16"
+
+license_type_to_board:
+  "A": MedicalBoard
+  "C": MedicalBoard
+  "G": MedicalBoard
+  "20A": PodiatricMedical
+  "RN": RegisteredNursing
+  "NP": RegisteredNursing
+  "LMFT": BehavioralSciences
+  "MFC": BehavioralSciences
+  "LCS": BehavioralSciences
+  "LCSW": BehavioralSciences
+  "PSY": Psychology
+  "PT": PhysicalTherapy
+  "DC": ChiropracticExaminers
+
+dca_po_box_policy: exclude_from_sites
+dca_city_only_policy: city_level_claim_only
+dca_freshness_rule: license_status_and_expiry
+facility_match_order:
+  - npi
+  - name_zip
+  - name_city
+facility_match_zip_sources:
+  - nppes
+  - any_claim
 
 # ── Geocoder ─────────────────────────────────────────────────────────────────
 geocode_batch_size: 9000              # Census batch limit is 10,000 rows / 5 MB; stay under
@@ -112,6 +205,7 @@ paths:
   c5_tin_sites:   output/c5/c5_tin_sites.parquet
   c5_candidates:  output/c5/c5_candidates.parquet
   c5_stale:       output/c5/c5_stale_claims.parquet
+  npi_registry_cache: data/npi_registry_cache
 
   # Outputs
   c5_addresses:   output/c5/c5_addresses.csv
@@ -124,9 +218,13 @@ paths:
   c5_extraction_log: output/c5/c5_extraction_log.csv
   c5_domain_yield: output/c5/c5_domain_yield.csv
   c5_suggested_domains: output/c5/c5_suggested_domains.csv
+  c5_source_contribution: output/c5/c5_source_contribution.csv
+  c5_source_disagreements: output/c5/c5_source_disagreements.csv
+  c5_source_instructions: output/c5/c5_source_instructions.md
   prompt_template: prompts/c5_extract_v1.txt
   prompt_template_v2: prompts/c5_extract_v2.txt
   c2b_ppo_rates:  output/c2b/c2b_ppo_rates.parquet
   geocode_cache:  output/c5/geocode_cache.parquet
   config_snapshot: output/c5/c5_config_snapshot.yaml
   sources_manifest: output/c5/c5_sources_manifest.json
+

@@ -250,41 +250,55 @@ Missing placeholders skip template generation without errors. Search-based disco
 | Step | Code | Description |
 |------|------|-------------|
 | WP0 | `wp0_readiness.py` | Environment check, file verification, source manifest (`c5_sources_manifest.json`), 5-NPI probe |
-| WP1 | `wp1_targets.py` | Load the target TIN-NPI pairs from C2b step 6 (`c2b_ppo_rates`), resolve entity types, deactivation check |
-| WP2 | `wp2_claims.py` | Extract evidence claims (NPPES primary + secondary + endpoints = `nppes_self`; CMS DAC = `medicare`) |
+| WP1 | `wp1_targets.py` | Load target TIN-NPI population reconciled against C2b step 6 (`c2b_ppo_rates`), resolve entity types, deactivation check |
+| WP2 | `wp2_claims.py` | Extract evidence claims (NPPES primary + secondary + endpoints = `nppes_self`; CMS DAC = `medicare`; CA DCA = `state_license`; CDPH = `state_facility`) |
 | WP3 | `wp3_sites.py` | USPS address normalization, Census batch geocoding, persistent disk cache |
 | WP4 | `wp4_tin_sites.py` | Build validated TIN site sets (org NPI support, provider consensus, Medicare group overlap) |
 | WP5 | `wp5_candidates.py` | Candidate generation and 6-factor weighted scoring |
-| WP6 | `wp6_choose.py` | Stale & conflict checks, winner selection, verified/probable/unverified labelling |
+| WP6 | `wp6_choose.py` | Stale & conflict checks, winner selection, verified/probable/unverified labelling (strict & loose profiles) |
 | WP7 | `wp7_leftovers.py` | Domain probe gate + Tiered extraction: Tier 0 (deterministic confirm), Tier 1 (JSON-LD, microdata, `<address>`), Tier 2 (batched Gemini 2.5 Flash with quote-check, name proximity, spend caps) |
-| WP8 | `wp8_validation.py` | Stratified 200-pair audit calibration sample |
-| WP9 | `wp9_summary.py` | Write `c5_summary.json` with before/after comparison and run statistics |
+| WP8 | `wp8_validation.py` | Stratified 200-pair audit calibration sample with state-source strata |
+| WP9 | `wp9_summary.py` | Write `c5_summary.json` with state source contributions, before/after comparison, and run statistics |
+
+## State Data Sources (DCA & CDPH)
+
+To expand verification without unconstrained scraping, C5 incorporates two official California state bulk sources:
+- **California DCA Licensee Bulk Files (Individuals):** Downloaded from the DCA public Box share into `data/state_sources/dca/`. Joined on normalized license numbers and verified legal last names.
+- **CDPH Healthcare Facility Locations (Organizations):** Downloaded from CHHS Open Data into `data/state_sources/cdph/health_facility_locations.csv`. Matched via NPI, Name + ZIP, and Name + City.
+
+For manual-drop download instructions, see `output/c5/c5_source_instructions.md`.
 
 ### Labelling rules
 
 | Label | Condition |
 |-------|-----------|
-| **verified** | ≥ 2 independent source families agree on the site AND newest evidence date ≤ 24 months |
+| **verified** (strict) | ≥ 2 independent source families agree on the site AND newest evidence date ≤ 24 months |
+| **verified** (loose) | ≥ 1 fresh independent family agree on site AND TIN site fit score $s_{\text{tin\_fit}} \ge 0.25$ (`label_loose`) |
 | **probable** | Supported but short of verified (e.g. 1 fresh source + TIN site set match, or 2 families but not fresh) |
 | **unverified** | Single weak source, stale-only, or no candidate found in bulk sources |
 
 **Source Family Independence Rules (R5.1, R5.8):**
 - NPPES primary, secondary (`pl`), and endpoints (`ep`) all belong to family `nppes_self`.
 - CMS DAC belongs to family `medicare`.
+- California DCA licensee bulk files belong to family `state_license` (independent).
+- CDPH healthcare facility locations belong to family `state_facility` (independent).
 - Web fetcher families: `payer_directory` (independent), `org_website` (independent), `web_aggregator` (**never independent** of `nppes_self` since aggregators derive provider records from NPPES).
 
 ### Outputs (`output/c5/`)
 
 | File | Contents |
 |------|----------|
-| `c5_addresses.csv` | One row per TIN–NPI (3,780 rows): best address + label + score + evidence |
+| `c5_addresses.csv` | One row per TIN–NPI (3,780 rows): best address + strict `label` + loose `label_loose` + score + evidence |
 | `c5_candidates.parquet` | Scored candidates per TIN–NPI (8,155 rows) |
 | `c5_tin_sites.parquet` | Validated TIN site sets (5,440 relationships across 2,888 TINs) |
 | `c5_sites.parquet` | Normalized physical address sites with coordinates |
 | `c5_leftovers.csv` | Prioritized queue of unverified pairs ordered by TIN size descending |
+| `c5_source_contribution.csv` | Individual vs Organization verification metrics for DCA and CDPH |
+| `c5_source_disagreements.csv` | Top-50 TIN discrepancies between state claims and winning addresses |
+| `c5_source_instructions.md` | Download links and verification steps for state sources |
 | `c5_lookup_log.csv` | Audit log of every web fetch attempt (status, response size, refusal reason) |
 | `c5_llm_log.csv` | Audit log of every Gemini API call (prompt tokens, duration, status, reason code) |
-| `c5_calibration_sample.csv` | 200-pair stratified sample for manual audit |
+| `c5_calibration_sample.csv` | 200-pair stratified sample for manual audit (includes state-supported strata) |
 | `c5_sources_manifest.json` | Provenance for every input file (path, file size, SHA-256) |
 | `c5_config_snapshot.yaml` | Exact configuration used for the run with SHA-256 hash |
 | `c5_summary.json` | Key verification counts, shares, before/after comparison, and metadata |
@@ -300,6 +314,8 @@ Place these under `Data/` in the repo root:
 | `NPPES_Data_Dissemination_October_2026_V2/endpoint_pfile_20050523-20261011.csv` | 121 MB | Provided by organizers |
 | `NPPES Deactivated NPI Report 20261012.xlsx` | 5.4 MB | Provided by organizers |
 | `DAC_NationalDownloadableFile.csv` | ~500 MB | [data.cms.gov dataset mj5m-pzi6](https://data.cms.gov/provider-data/dataset/mj5m-pzi6) |
+| `data/state_sources/dca/*.tsv` | ~250 MB | California DCA Public Box Folder (Medical Board, Nursing, etc.) |
+| `data/state_sources/cdph/health_facility_locations.csv` | 6.9 MB | CHHS Open Data Portal |
 
 Target TIN–NPI pairs are read from the C2b step 6 output `output/c2b/c2b_ppo_rates.parquet` (`paths.targets` in `config/c5.yaml`).
 
@@ -312,14 +328,15 @@ Target TIN–NPI pairs are read from the C2b step 6 output `output/c2b/c2b_ppo_r
 | `pipeline/c5/common.py` | Shared configuration, schemas, hash snapshot, and ID formatters |
 | `pipeline/c5/wp0_readiness.py` | WP0: Setup validation, source manifest generation, 5-NPI probe |
 | `pipeline/c5/wp1_targets.py` | WP1: Load Health Net CA targets, entity types, deactivation flags |
-| `pipeline/c5/wp2_claims.py` | WP2: Load evidence claims (NPPES primary/pl/ep, CMS DAC, PO box flags) |
+| `pipeline/c5/wp2_claims.py` | WP2: Load evidence claims (NPPES primary/pl/ep, CMS DAC, PO box flags, state sources) |
+| `pipeline/c5/wp2_state_sources.py` | WP2: State sources ingestion (DCA bulk files for individuals, CDPH facilities for orgs) |
 | `pipeline/c5/wp3_sites.py` | WP3: USPS address normalization, Census batch geocoding, disk cache |
 | `pipeline/c5/wp4_tin_sites.py` | WP4: TIN site set construction (org NPI, consensus, Medicare group) |
 | `pipeline/c5/wp5_candidates.py` | WP5: Candidate generation and additive feature scoring |
-| `pipeline/c5/wp6_choose.py` | WP6: Stale & conflict checks, winner selection, verified/probable labelling |
+| `pipeline/c5/wp6_choose.py` | WP6: Stale & conflict checks, winner selection, strict/loose labelling, disagreement logging |
 | `pipeline/c5/wp7_leftovers.py` | WP7: Unverified leftover queue prioritized by TIN size, quote check |
 | `pipeline/c5/wp8_validation.py` | WP8: Stratified calibration sample generation and precision metrics |
-| `pipeline/c5/wp9_summary.py` | WP9: Comprehensive execution summary and verification stats |
+| `pipeline/c5/wp9_summary.py` | WP9: Comprehensive execution summary, state contribution metrics, before/after diff |
 
 ### Conventions (per project LOGIC.md)
 

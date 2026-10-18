@@ -1,7 +1,9 @@
 """pipeline/c5/wp2_claims.py – WP2: Build c5_claims.
 
 One evidence row per (NPI, source, address).
-Sources: NPPES primary, secondary locations, endpoints, CMS DAC.
+Sources: NPPES primary, secondary locations, endpoints, CMS DAC,
+         California DCA licensee bulk files (individuals),
+         California CDPH healthcare facility locations (organizations).
 Deactivated NPIs are marked but not dropped so they are traceable.
 """
 from __future__ import annotations
@@ -24,6 +26,12 @@ from .common import (
     is_po_box,
     source_to_family,
 )
+from .wp2_state_sources import (
+    load_cdph_claims,
+    load_dca_claims,
+    write_source_instructions,
+)
+from .wp2_npi_registry import load_npi_registry_claims
 
 log = get_logger("c5.wp2")
 
@@ -77,9 +85,14 @@ def _make_claim_id(npi: str, source: str, addr: str) -> str:
 
 
 def _raw_address(row: pd.Series) -> str:
-    parts = [row.get("addr1", ""), row.get("addr2", ""),
-             row.get("city", ""), row.get("state", ""), row.get("zip", "")]
-    return " ".join(str(p).strip() for p in parts if str(p).strip())
+    parts = []
+    for col in ("addr1", "addr2", "city", "state", "zip"):
+        val = row.get(col, "")
+        if val is not None and not pd.isna(val):
+            s = str(val).strip()
+            if s and s.lower() != "nan":
+                parts.append(s)
+    return " ".join(parts)
 
 
 def _col_select(col_map: dict) -> str:
@@ -174,8 +187,11 @@ def load_dac_claims(path: str, npis: Set[str]) -> pd.DataFrame:
     return df
 
 
-def run_wp2(cfg: dict, targets: pd.DataFrame) -> pd.DataFrame:
-    """Build and write c5_claims. Returns the DataFrame."""
+def run_wp2(
+    cfg: dict,
+    targets: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict]:
+    """Build and write c5_claims. Returns (DataFrame, state_source_stats)."""
     log.info("=== WP2: Build c5_claims ===")
 
     npis: Set[str] = set(targets["npi"].unique())
@@ -212,19 +228,84 @@ def run_wp2(cfg: dict, targets: pd.DataFrame) -> pd.DataFrame:
         log.info(f"    → {len(df):,} rows")
         parts.append(df)
 
-    parts = [part.dropna(how="all", axis=1) for part in parts if not part.empty]
-    if not parts:
-        log.error("No claim sources available. Cannot proceed.")
-        return pd.DataFrame(columns=SCHEMA_CLAIMS)
+    # ── Live CMS NPI Registry (freshen stale provider locations & endpoints) ──
+    npi_reg_cfg = cfg.get("sources", {}).get("npi_registry_live", {})
+    if npi_reg_cfg.get("enabled", True):
+        log.info("  Loading live CMS NPI Registry claims…")
+        try:
+            df_reg = load_npi_registry_claims(
+                cfg,
+                npis,
+                max_workers=int(npi_reg_cfg.get("max_workers", 10)),
+                max_fetch_count=npi_reg_cfg.get("max_fetch_count", None),
+            )
+            if not df_reg.empty:
+                log.info(f"    → {len(df_reg):,} live NPI registry claims created")
+                parts.append(df_reg)
+        except Exception as exc:
+            log.error(f"  Live NPI Registry source failed (non-fatal): {exc}")
 
-    claims = pd.concat(parts, ignore_index=True)
+    # ── California DCA licensee bulk files (individuals) ──────────────────────
+    state_stats: dict = {"dca": {}, "cdph": {}}
+    dca_cfg = cfg.get("sources", {}).get("dca_license_bulk", {})
+    dca_local_dir = dca_cfg.get("local_dir", "data/state_sources/dca")
+    # Check if any DCA files exist
+    import glob as _glob
+    import os as _os
+    dca_files_present = (
+        bool(_glob.glob(_os.path.join(dca_local_dir, "*.tsv"))) or
+        bool(_glob.glob(_os.path.join(dca_local_dir, "*.xls")))
+    )
+    if dca_files_present and Path(p["nppes_main"]).is_file():
+        log.info("  Loading California DCA licensee claims (individuals)…")
+        try:
+            df_dca, dca_stats = load_dca_claims(cfg, targets, p["nppes_main"])
+            state_stats["dca"] = dca_stats
+            if not df_dca.empty:
+                log.info(f"    → {len(df_dca):,} DCA claims created")
+                parts.append(df_dca)
+        except Exception as exc:
+            log.error(f"  DCA source failed (non-fatal, run continues): {exc}")
+    else:
+        log.info("  DCA files not found – skipping (see c5_source_instructions.md)")
+
+    # ── Build bulk claims concat so CDPH can use ZIP/city from existing claims ─
+    bulk_parts = [part.dropna(how="all", axis=1) for part in parts if not part.empty]
+    bulk_claims_for_cdph = pd.concat(bulk_parts, ignore_index=True) if bulk_parts else pd.DataFrame()
+
+    # ── California CDPH healthcare facility locations (organizations) ─────────
+    cdph_cfg = cfg.get("sources", {}).get("cdph_facility", {})
+    cdph_local_dir = cdph_cfg.get("local_dir", "data/state_sources/cdph")
+    cdph_file = _os.path.join(cdph_local_dir, "health_facility_locations.csv")
+    if Path(cdph_file).is_file():
+        log.info("  Loading California CDPH facility claims (organizations)…")
+        try:
+            df_cdph, cdph_stats = load_cdph_claims(cfg, targets, bulk_claims_for_cdph)
+            state_stats["cdph"] = cdph_stats
+            if not df_cdph.empty:
+                log.info(f"    → {len(df_cdph):,} CDPH claims created")
+                parts.append(df_cdph)
+        except Exception as exc:
+            log.error(f"  CDPH source failed (non-fatal, run continues): {exc}")
+    else:
+        log.info("  CDPH file not found – skipping (see c5_source_instructions.md)")
+
+    # ── Write download instructions (always, so humans know what to place) ────
+    instructions_path = str(Path(p["c5_claims"]).parent / "c5_source_instructions.md")
+    write_source_instructions(cfg, instructions_path)
+
+    parts_clean = [part.dropna(how="all", axis=1) for part in parts if not part.empty]
+    if not parts_clean:
+        log.error("No claim sources available. Cannot proceed.")
+        return pd.DataFrame(columns=SCHEMA_CLAIMS), state_stats
+
+    claims = pd.concat(parts_clean, ignore_index=True)
 
     # Raw address + derived columns
-    claims["addr1"] = claims.get("addr1", "").fillna("")
-    claims["addr2"] = claims.get("addr2", "").fillna("")
-    claims["city"]  = claims.get("city", "").fillna("")
-    claims["state"] = claims.get("state", "").fillna("")
-    claims["zip"]   = claims.get("zip", "").fillna("")
+    for col in ("addr1", "addr2", "city", "state", "zip"):
+        if col not in claims.columns:
+            claims[col] = ""
+        claims[col] = claims[col].fillna("")
 
     claims["raw_address"] = claims.apply(_raw_address, axis=1)
 
@@ -242,10 +323,28 @@ def run_wp2(cfg: dict, targets: pd.DataFrame) -> pd.DataFrame:
         lambda n: "deactivated" if n in deact_npis else "active"
     )
 
-    # Claim ID (deterministic)
-    claims["claim_id"] = claims.apply(
-        lambda r: _make_claim_id(r["npi"], r["source"], r["raw_address"]), axis=1
-    )
+    # Claim ID (deterministic; only set for non-state rows that don't already have one)
+    def _assign_claim_id(r: pd.Series) -> str:
+        if r.get("claim_id") and str(r["claim_id"]).strip():
+            return r["claim_id"]
+        return _make_claim_id(r["npi"], r["source"], r["raw_address"])
+
+    claims["claim_id"] = claims.apply(_assign_claim_id, axis=1)
+
+    def _norm_date(val: Any) -> Optional[str]:
+        if val is None or pd.isna(val):
+            return None
+        if hasattr(val, "strftime"):
+            return val.strftime("%Y-%m-%d")
+        s = str(val).strip()
+        if not s:
+            return None
+        try:
+            return pd.to_datetime(s).strftime("%Y-%m-%d")
+        except Exception:
+            return s[:10]
+
+    claims["source_date"] = claims["source_date"].apply(_norm_date)
 
     # ── Final column selection ────────────────────────────────────────────────
     for col in SCHEMA_CLAIMS:
@@ -274,5 +373,18 @@ def run_wp2(cfg: dict, targets: pd.DataFrame) -> pd.DataFrame:
     deact_claims = (result["npi_status"] == "deactivated").sum()
     log.info(f"  Claims on deactivated NPIs: {deact_claims:,}")
 
+    if state_stats.get("dca"):
+        ds = state_stats["dca"]
+        log.info(
+            f"  DCA: eligible={ds.get('eligible_targets',0):,}, matched={ds.get('matched',0):,}, "
+            f"ambiguous={ds.get('ambiguous',0):,}, claims={ds.get('claims_created',0):,}"
+        )
+    if state_stats.get("cdph"):
+        cs = state_stats["cdph"]
+        log.info(
+            f"  CDPH: eligible={cs.get('eligible_targets',0):,}, matched={cs.get('matched',0):,}, "
+            f"claims={cs.get('claims_created',0):,}"
+        )
+
     log.info("WP2 DONE")
-    return result
+    return result, state_stats

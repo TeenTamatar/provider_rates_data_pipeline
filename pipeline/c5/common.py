@@ -150,6 +150,7 @@ SCHEMA_CLAIMS = [
     "claim_id", "npi", "tin", "raw_address", "source", "source_family",
     "source_date", "claim_type", "is_po_box", "is_billing_only",
     "npi_status", "addr1", "addr2", "city", "state", "zip",
+    "match_method", "facility_id", "freshness_basis",
 ]
 
 SCHEMA_SITES = [

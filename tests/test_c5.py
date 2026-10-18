@@ -790,3 +790,213 @@ def test_web_claim_never_verifies_alone(tmp_path):
     assert count_independent_families(["web", "nppes_self"]) == 2
     # web_aggregator + nppes_self -> 1 family (aggregator not independent of nppes)
     assert count_independent_families(["web_aggregator", "nppes_self"]) == 1
+
+
+# ── State Sources Tests (14 - 20) ──────────────────────────────────────────────
+
+def test_normalize_license_number():
+    from pipeline.c5.wp2_state_sources import normalize_license_number
+
+    prefix, patterns = normalize_license_number("A-12345")
+    assert prefix == "A"
+    assert "12345" in patterns
+    assert "A12345" in patterns
+
+    prefix, patterns = normalize_license_number(" C 09876 ")
+    assert prefix == "C"
+    assert "9876" in patterns
+
+    prefix, patterns = normalize_license_number("20A-54321")
+    assert prefix == "20A"
+    assert "54321" in patterns
+
+
+def test_norm_name_and_last_name():
+    from pipeline.c5.wp2_state_sources import norm_name, norm_last_name
+
+    assert norm_name("Acme Health, Inc.") == "ACMEHEALTH"
+    assert norm_name("Care Provider LLC") == "CAREPROVIDER"
+    assert norm_last_name("Smith-Jones") == "SMITHJONES"
+    assert norm_last_name("O'Connor") == "OCONNOR"
+    assert norm_last_name("") == ""
+
+
+def test_dca_matching_and_exclusions(tmp_path):
+    import pandas as pd
+    from pipeline.c5.wp2_state_sources import load_dca_claims
+
+    dca_dir = tmp_path / "dca"
+    dca_dir.mkdir()
+    dca_file = dca_dir / "MedicalBoard_sample.tsv"
+
+    header = "Agency Code\tAgency Name\tLicTypeCode\tLicense Type\tLicense Number\tIndiv/Org\tOrg/Last Name\tFirst Name\tMiddle Name\tSuffix\tAddress Line 1\tAddress Line 2\tCity\tCounty\tState\tZip\tCountry\tOriginal Issue Date\tExpiration Date\tLicense Status"
+    rows = [
+        # Valid match (future expiry -> fresh)
+        "200\tMedical Board\t2001\tPhysician\tA10001\tI\tSmith\tAlice\tM\t\t100 Main St\tSte 100\tSacramento\tSacramento\tCA\t95814\tUSA\t01-01-2010\t12-31-2027\tRenewed / Current",
+        # PO Box (should be excluded from sites)
+        "200\tMedical Board\t2001\tPhysician\tA10002\tI\tJones\tBob\t\t\tPO Box 999\t\tSacramento\tSacramento\tCA\t95814\tUSA\t01-01-2010\t12-31-2027\tRenewed / Current",
+        # Non-CA (should be excluded)
+        "200\tMedical Board\t2001\tPhysician\tA10003\tI\tTaylor\tCarol\t\t\t456 Elm St\t\tReno\tWashoe\tNV\t89501\tUSA\t01-01-2010\t12-31-2027\tRenewed / Current",
+        # Ambiguous match (2 entries with same license number)
+        "200\tMedical Board\t2001\tPhysician\tA10004\tI\tDavis\tDan\t\t\t789 Pine St\t\tFresno\tFresno\tCA\t93721\tUSA\t01-01-2010\t12-31-2027\tRenewed / Current",
+        "200\tMedical Board\t2001\tPhysician\tA10004\tI\tDavis\tDan\t\t\t789 Oak St\t\tFresno\tFresno\tCA\t93721\tUSA\t01-01-2010\t12-31-2027\tRenewed / Current",
+    ]
+    dca_file.write_text(header + "\n" + "\n".join(rows))
+
+    # Mini NPPES main CSV
+    nppes_file = tmp_path / "nppes_mini.csv"
+    lic_headers = []
+    for i in range(1, 16):
+        lic_headers.append(f'"Provider License Number_{i}"')
+        lic_headers.append(f'"Provider License Number State Code_{i}"')
+    nppes_hdr = '"NPI","Provider Last Name (Legal Name)","Provider First Name",' + ",".join(lic_headers)
+
+    def make_nppes_row(npi, last, first, lic_num, lic_st):
+        slots = [f'"{lic_num}"', f'"{lic_st}"'] + ['""', '""'] * 14
+        return f'"{npi}","{last}","{first}",' + ",".join(slots)
+
+    nppes_rows = [
+        make_nppes_row("1111111111", "Smith", "Alice", "A10001", "CA"),
+        make_nppes_row("2222222222", "Jones", "Bob", "A10002", "CA"),
+        make_nppes_row("3333333333", "Taylor", "Carol", "A10003", "CA"),
+        make_nppes_row("4444444444", "Davis", "Dan", "A10004", "CA"),
+    ]
+    nppes_file.write_text(nppes_hdr + "\n" + "\n".join(nppes_rows))
+
+    targets = pd.DataFrame([
+        {"npi": "1111111111", "tin": "99-1111111", "entity_type": "individual"},
+        {"npi": "2222222222", "tin": "99-1111111", "entity_type": "individual"},
+        {"npi": "3333333333", "tin": "99-1111111", "entity_type": "individual"},
+        {"npi": "4444444444", "tin": "99-1111111", "entity_type": "individual"},
+    ])
+
+    cfg = {
+        "sources": {"dca_license_bulk": {"local_dir": str(dca_dir), "boards": ["MedicalBoard"]}},
+        "dca_po_box_policy": "exclude_from_sites",
+        "dca_freshness_rule": "license_status_and_expiry",
+    }
+
+    claims, stats = load_dca_claims(cfg, targets, str(nppes_file))
+    # Alice matches (usable address); Bob matches (PO Box flagged); Carol excluded by NV (non-CA); Dan ambiguous
+    assert len(claims) == 2
+    assert set(claims["npi"]) == {"1111111111", "2222222222"}
+    alice_claim = claims[claims["npi"] == "1111111111"].iloc[0]
+    bob_claim = claims[claims["npi"] == "2222222222"].iloc[0]
+    assert alice_claim["source"] == "dca_license_bulk"
+    assert alice_claim["source_family"] == "state_license"
+    assert not alice_claim["is_po_box"]
+    assert bool(bob_claim["is_po_box"])
+    assert stats["matched"] == 2
+    assert stats["excluded_pobox"] == 1
+    assert stats["ambiguous"] == 1
+
+
+def test_cdph_matching_priority(tmp_path):
+    import pandas as pd
+    from pipeline.c5.wp2_state_sources import load_cdph_claims
+
+    cdph_dir = tmp_path / "cdph"
+    cdph_dir.mkdir()
+    cdph_file = cdph_dir / "health_facility_locations.csv"
+
+    header = "FACID,FACNAME,BUSINESS_NAME,FAC_FDR,FAC_STATUS_TYPE_CODE,ADDRESS,CITY,ZIP,COUNTY_NAME,NPI,LATITUDE,LONGITUDE,DATA_DATE,LICENSE_STATUS_DESCRIPTION"
+    rows = [
+        # Row 1: Matches on NPI
+        "FAC001,Mercy Hospital,MERCY GENERAL,General Acute Care Hospital,OPEN,123 Hospital Way,Sacramento,95819,Sacramento,1234567890,38.5,-121.4,10/16/2026,LICENSED",
+        # Row 2: Matches on Name + ZIP
+        "FAC002,Sutter Health Care Center,SUTTER HEALTH,Clinic,OPEN,456 Clinic Blvd,Roseville,95661,Placer,,38.7,-121.2,10/16/2026,LICENSED",
+        # Row 3: Matches on Name + City
+        "FAC003,Kaiser Permanente Center,KAISER,Hospital,OPEN,789 Kaiser Way,Oakland,94611,Alameda,,37.8,-122.2,10/16/2026,LICENSED",
+    ]
+    cdph_file.write_text(header + "\n" + "\n".join(rows))
+
+    targets = pd.DataFrame([
+        {"npi": "1234567890", "tin": "88-1234567", "entity_type": "organization", "business_name": "Mercy Hospital"},
+        {"npi": "2345678901", "tin": "88-1234567", "entity_type": "organization", "business_name": "Sutter Health Care Center"},
+        {"npi": "3456789012", "tin": "88-1234567", "entity_type": "organization", "business_name": "Kaiser Permanente Center"},
+    ])
+
+    existing_claims = pd.DataFrame([
+        {"npi": "2345678901", "zip": "95661", "city": "Roseville"},
+        {"npi": "3456789012", "zip": "99999", "city": "Oakland"},
+    ])
+
+    cfg = {
+        "sources": {"cdph_facility": {"local_dir": str(cdph_dir)}},
+        "facility_match_order": ["npi", "name_zip", "name_city"],
+    }
+
+    claims, stats = load_cdph_claims(cfg, targets, existing_claims)
+    assert len(claims) == 3
+    methods = dict(zip(claims["npi"], claims["match_method"]))
+    assert methods["1234567890"] == "cdph_npi"
+    assert methods["2345678901"] == "cdph_name_zip"
+    assert methods["3456789012"] == "cdph_name_city"
+    assert stats["matched_by_method"]["cdph_npi"] == 1
+    assert stats["matched_by_method"]["cdph_name_zip"] == 1
+    assert stats["matched_by_method"]["cdph_name_city"] == 1
+
+
+def test_state_source_family_independence():
+    from pipeline.c5.common import count_independent_families
+
+    assert count_independent_families(["state_license"]) == 1
+    assert count_independent_families(["state_facility"]) == 1
+    assert count_independent_families(["state_license", "nppes_self"]) == 2
+    assert count_independent_families(["state_facility", "nppes_self"]) == 2
+    assert count_independent_families(["state_license", "state_facility"]) == 2
+    assert count_independent_families(["state_license", "web"]) == 2
+    assert count_independent_families(["state_license", "web_aggregator"]) == 2
+
+
+def test_strict_vs_loose_labels():
+    from pipeline.c5.wp6_choose import _compute_label, _compute_loose_label
+
+    # Strict: requires >= 2 independent families + is_fresh
+    assert _compute_label(False, 2, True) == "verified"
+    assert _compute_label(False, 1, True, s_tin_fit=0.0) == "unverified"
+    assert _compute_label(False, 1, False, s_tin_fit=0.0) == "unverified"
+    assert _compute_label(True, 2, True) == "unverified"
+
+    # Loose: 1 fresh family + s_tin_fit >= 0.25 -> verified
+    assert _compute_loose_label(False, 1, True, 0.30, 0.25) == "verified"
+    assert _compute_loose_label(False, 1, True, 0.10, 0.25) == "probable"
+    assert _compute_loose_label(False, 0, False, 0.30, 0.25) == "probable"
+    assert _compute_loose_label(True, 2, True, 0.50, 0.25) == "unverified"
+
+
+def test_claim_id_determinism(tmp_path):
+    import pandas as pd
+    from pipeline.c5.wp2_state_sources import load_dca_claims
+
+    dca_dir = tmp_path / "dca"
+    dca_dir.mkdir()
+    dca_file = dca_dir / "MedicalBoard_sample.tsv"
+    row = "200\tMedical Board\t2001\tPhysician\tA10001\tI\tSmith\tAlice\tM\t\t100 Main St\tSte 100\tSacramento\tSacramento\tCA\t95814\tUSA\t01-01-2010\t12-31-2027\tRenewed / Current"
+    header = "Agency Code\tAgency Name\tLicTypeCode\tLicense Type\tLicense Number\tIndiv/Org\tOrg/Last Name\tFirst Name\tMiddle Name\tSuffix\tAddress Line 1\tAddress Line 2\tCity\tCounty\tState\tZip\tCountry\tOriginal Issue Date\tExpiration Date\tLicense Status"
+    dca_file.write_text(header + "\n" + row)
+
+    nppes_file = tmp_path / "nppes_mini.csv"
+    lic_headers = []
+    for i in range(1, 16):
+        lic_headers.append(f'"Provider License Number_{i}"')
+        lic_headers.append(f'"Provider License Number State Code_{i}"')
+    nppes_hdr = '"NPI","Provider Last Name (Legal Name)","Provider First Name",' + ",".join(lic_headers)
+    slots = ['"A10001"', '"CA"'] + ['""', '""'] * 14
+    nppes_row = '"1111111111","Smith","Alice",' + ",".join(slots)
+    nppes_file.write_text(nppes_hdr + "\n" + nppes_row)
+
+    targets = pd.DataFrame([
+        {"npi": "1111111111", "tin": "99-1111111", "entity_type": "individual"},
+    ])
+    cfg = {
+        "sources": {"dca_license_bulk": {"local_dir": str(dca_dir), "boards": ["MedicalBoard"]}},
+        "dca_po_box_policy": "exclude_from_sites",
+        "dca_freshness_rule": "license_status_and_expiry",
+    }
+
+    claims1, _ = load_dca_claims(cfg, targets, str(nppes_file))
+    claims2, _ = load_dca_claims(cfg, targets, str(nppes_file))
+    assert claims1.iloc[0]["claim_id"] == claims2.iloc[0]["claim_id"]
+    assert len(claims1.iloc[0]["claim_id"]) == 16
+    assert claims1.iloc[0]["source"] == "dca_license_bulk"
