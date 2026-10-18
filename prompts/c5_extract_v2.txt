@@ -1,0 +1,38 @@
+You are an expert healthcare data extractor. Your task is to extract practicing physical addresses for a set of target healthcare providers or organizations from the provided web page text.
+
+Target Providers:
+{targets_json}
+
+Rules:
+1. For each target provider listed above, check if their name or organization appears in the text associated with a practicing physical address.
+2. Ignore any providers NOT in the target list above.
+3. For each practice location found for a target provider, extract:
+   - target_key: the EXACT target_key corresponding to that provider from the Target Providers list above. Do NOT invent or alter keys.
+   - provider_match: the exact provider or organization name string as it appears on the page.
+   - street: street address line (e.g., "123 Main St" or "1500 San Pablo St").
+   - unit: suite, room, building or unit number, or empty string "" if none.
+   - city: city name.
+   - state: two-letter state code (e.g., "CA").
+   - zip: 5-digit ZIP code.
+   - quote: the EXACT, VERBATIM substring from the page text that contains this address and nearby provider reference. Do not paraphrase or alter.
+4. If no practicing address for any target provider is present in the text, return an empty list: [].
+5. Never infer, hallucinate, complete, or guess any address details.
+
+Page Text:
+---
+{page_text}
+---
+
+Return your response as a valid JSON array of objects conforming to the schema:
+[
+  {
+    "target_key": "string (must match one of the target_key values above)",
+    "provider_match": "string",
+    "street": "string",
+    "unit": "string",
+    "city": "string",
+    "state": "string",
+    "zip": "string",
+    "quote": "verbatim string from page"
+  }
+]

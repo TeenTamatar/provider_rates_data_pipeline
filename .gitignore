@@ -1,13 +1,46 @@
-# Python virtual environment
+# Environments & Secrets
+.env
+.env.*
+!.env.example
 .venv/
+venv/
+env/
+
+# Python cache & artifacts
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
 
-# OS files
+# Data directories, large files & symlinks
+# (C4's committed parquet files and outputs/c4/ stay tracked; these rules only
+# stop new files from being added.)
+Data
+Data/
+.download_cache/
+rate_files/
+*.zip
+*.parquet
+*.xlsx
+*.tmp
+
+# Symlinks to other repos / handoff
+hilabs-provider-rates
+handoff
+
+# Pipeline output
+output/
+output/*
+outputs/
+
+# Logs, OS & temp files
+*.log
 .DS_Store
 Thumbs.db
