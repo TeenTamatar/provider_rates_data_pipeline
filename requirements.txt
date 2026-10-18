@@ -1,0 +1,39 @@
+# Single requirements file for the whole pipeline (C1-C7).
+# Merged from: main (C1-C3), C1-2, c5, backup/private-main and main's working copy.
+# Python 3.12.
+
+# Core data processing (all stages)
+pandas==2.2.3
+numpy==2.0.2
+openpyxl==3.1.5
+# C3 pins pyarrow 24.0.0; C5 had 17.0.0. Kept the newer one.
+pyarrow==24.0.0
+
+# Large file processing (C1-C4)
+duckdb==1.5.6
+ijson==3.6.0
+
+# Reading organizer PDFs (experiments)
+pypdf==6.14.2
+
+# C5: address parsing and linkage
+usaddress==0.5.10
+rapidfuzz==3.10.1
+
+# C5: geocoding and web lookups
+requests==2.32.3
+beautifulsoup4==4.15.0
+
+# C5: Gemini extraction
+google-genai==2.31.0
+pydantic==2.12.5
+
+# C5: utilities and tests
+tqdm==4.67.1
+python-dotenv==1.0.1
+pyyaml>=6.0
+pytest>=8.0.0
+
+# C7: specialty table check (embedding model)
+scikit-learn==1.5.2
+sentence-transformers==6.1.0

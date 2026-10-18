@@ -1,0 +1,41 @@
+# Environments & Secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Data directories, downloads & temp files
+/Data/
+.download_cache/
+rate_files/
+*.zip
+*.tmp
+
+# Generated outputs (every stage writes to output/)
+/output/
+*.parquet
+
+# Symlinks to other repos / handoff
+/hilabs-provider-rates
+/handoff
+
+# Exploratory notebook (C4 scratch work, kept local)
+/main.ipynb
+
+# Logs & OS files
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,36 @@
+You are an expert healthcare data extractor. Your task is to extract practicing physical addresses for a specific target healthcare provider or organization from the provided web page text.
+
+Target Provider Name: {target_name}
+Target TIN: {target_tin}
+
+Rules:
+1. Directory pages may list multiple providers. Ignore EVERY provider except the target provider named above.
+2. Extract ONLY addresses where the target provider explicitly practices or has an office location.
+3. For each practice location found for the target provider, extract:
+   - provider_match: the exact provider name string as it appears on the page matching the target, or null.
+   - street: street address line (e.g., "123 Main St" or "1500 San Pablo St").
+   - unit: suite, room, building or unit number, or empty string "" if none.
+   - city: city name.
+   - state: two-letter state code (e.g., "CA").
+   - zip: 5-digit ZIP code.
+   - quote: the EXACT, VERBATIM substring from the page text that contains this address. Do not paraphrase.
+4. If no practicing address for the target provider is present in the text, return an empty list: [].
+5. Never infer, hallucinate, complete, or guess any address details.
+
+Page Text:
+---
+{page_text}
+---
+
+Return your response as a valid JSON array of objects conforming to the schema:
+[
+  {
+    "provider_match": "string or null",
+    "street": "string",
+    "unit": "string",
+    "city": "string",
+    "state": "string",
+    "zip": "string",
+    "quote": "verbatim string from page"
+  }
+]
