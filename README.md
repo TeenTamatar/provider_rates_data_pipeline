@@ -5,13 +5,13 @@ Pipeline stages merged on this branch:
 | Stage | Code | Notes |
 |-------|------|-------|
 | C1–C3 | `pipeline/c1_*.py`, `pipeline/c2*_*.py`, `pipeline/c3_*.py`, `pipeline/rate_scan.py` | Index parsing, PPO plan classification, PPO rates, quality scoring |
-| C4 | `c4_select.py`, `main.ipynb` | One rate per provider key from the C2b-kept price table; outputs in `outputs/c4/` |
+| C4 | `c4_select.py`, `main.ipynb` | One rate per provider key from the C2b step 6 rate table (`output/c2b/c2b_ppo_rates.parquet`); outputs in `outputs/c4/` |
 | C5 | `pipeline/run_c5.py`, `pipeline/c5/` | TIN/NPI → practice address (guide below) |
 
 ## C4: rate selection
 
 ```bash
-python c4_select.py --kept data/c2b_step4_kept_prices.parquet --out-dir outputs/c4
+python c4_select.py
 ```
 
 ## C5: TIN/NPI → Practice Address Pipeline

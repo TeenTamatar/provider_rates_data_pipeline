@@ -1,18 +1,21 @@
-"""C4: choose one rate per provider key from the C2b-kept price table.
+"""C4: choose one rate per provider key from the C2b final rate table (c2b_ppo_rates).
 
 Key = TIN x NPI x billing_code_type x billing_code x additional_information.
 Rules are applied as a funnel; each rule only looks at keys that still hold
 more than one distinct rate. Every dropped row is kept in an alternatives
 table with a reason. Counts go to c4_summary.json for the logic file.
 
-Terminal:  python c4_select.py --kept data/c2b_step4_kept_prices.parquet --out-dir outputs/c4
-Notebook:  main(["--kept", "data/c2b_step4_kept_prices.parquet", "--out-dir", "outputs/c4"])
+Terminal:  python c4_select.py
+           python c4_select.py --kept output/c2b/c2b_ppo_rates.parquet --out-dir outputs/c4
+Notebook:  main(["--kept", "output/c2b/c2b_ppo_rates.parquet", "--out-dir", "outputs/c4"])
 """
 import argparse
 import json
 from pathlib import Path
 
 import duckdb
+
+DEFAULT_KEPT = Path(__file__).resolve().parent / "output" / "c2b" / "c2b_ppo_rates.parquet"
 
 KEY = "tin, npi, billing_code_type, billing_code, addl_key"
 
@@ -51,7 +54,8 @@ def conflict_keys(con, table):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--kept", required=True, help="c2b_step4_kept_prices.parquet")
+    ap.add_argument("--kept", default=str(DEFAULT_KEPT),
+                    help="C2b step 6 output (default: output/c2b/c2b_ppo_rates.parquet)")
     ap.add_argument("--out-dir", default="outputs/c4")
     args = ap.parse_args(argv)
 

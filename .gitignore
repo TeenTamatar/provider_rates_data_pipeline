@@ -28,8 +28,6 @@ rate_files/
 /output/
 /outputs/
 *.parquet
-# C4's input from C2b step 4; no script in this repo writes it yet
-!/c2b_step4_kept_prices.parquet
 
 # Symlinks to other repos / handoff
 /hilabs-provider-rates
