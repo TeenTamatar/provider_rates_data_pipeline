@@ -11,6 +11,8 @@ HiLabs hackathon: build a provider-level PPO rate file for Centene California (N
 | C3 file quality metrics | `pipeline/c3_*.py` | `output/c3/`, `deliverables/` |
 | C4 one rate per provider key | `pipeline/c4_select.py` | `output/c4/` |
 | C5 TIN/NPI → practice address | `pipeline/run_c5.py`, `pipeline/c5/` | `output/c5/` |
+| C6 provider rate file | `pipeline/c6_provider_rate_file.py` | `output/c6/` |
+| C7 cost-effectiveness | `pipeline/c7_*.py` | `output/c7/` |
 
 ## Setup
 
@@ -20,13 +22,59 @@ Python 3.12.
 pip install -r requirements.txt
 ```
 
-Large inputs are not in git. Put them under `Data/` in your checkout (paths and download links: [`handoff/DATA_SOURCES.md`](handoff/DATA_SOURCES.md); C5's NPPES and CMS files: [Data sources required](#data-sources-required)).
+Large inputs are not in git. They go under `Data/` in the repo root (the folder is git-ignored); see [Data sources](#data-sources) below.
 
 C5 also needs a `.env` with `GEMINI_API_KEY` (copy `.env.example`); see [C5 quick start](#quick-start).
 
-## Run
+## Run everything (one command)
 
-All paths default to locations relative to the repo root; every script prints `--help`. Run the steps in this order.
+Put the two organizer files in `Data/` (see [Data sources](#data-sources)), then:
+
+```bash
+python run_pipeline.py
+```
+
+This downloads every public input that is missing, then runs C1 → C7 in order and stops at the first failing step. Useful options:
+
+| Option | Effect |
+|---|---|
+| `--list` | Print the 27 steps in run order |
+| `--from c4` / `--to c3_report` | Start or stop at a step (full name or prefix) |
+| `--only c6 c7_geocode` | Run only these steps |
+| `--skip-download` | Skip the download steps (inputs already in `Data/`) |
+| `--offline` | No paid or remote calls: C5 runs `--estimate --dry-run` (no Gemini, no Census), C7 uses cached geocodes |
+| `--run-date 2026-10-18` | Run date for the scan and C3 (default: today) |
+
+A failed step prints the command to resume from it. The final output is in `output/c7/`.
+
+## Data sources
+
+Provided by the organizers (not publicly downloadable; copy into `Data/` yourself):
+
+| Local path | What it holds | Needed by |
+|---|---|---|
+| `Data/2026-09-30_healthnet_index.json`, `Data/2026-09-28_qualchoice_index.json`, `Data/2026-09-28_fidelis_index.json`, `Data/2026-09-28_ambetter_index.json` | Centene price transparency index files (plans → rate file links) | C1, C3 |
+| `Data/Rate Benchmarking Individual Weights_Hackathon.xlsx` | HiLabs taxonomy → specialty crosswalk, specialty weights, codes per specialty | C3, C4, C6, C7 |
+
+Downloaded automatically by `run_pipeline.py` (or by hand from these links):
+
+| Local path | Size | Source | Needed by |
+|---|---|---|---|
+| `Data/NPPES_Data_Dissemination_October_2026_V2/` (`npidata_pfile_*`, `pl_pfile_*`, `endpoint_pfile_*`) | 1.1 GB zip, 11 GB unzipped | [NPPES October 2026 V2 zip](https://download.cms.gov/nppes/NPPES_Data_Dissemination_October_2026_V2.zip) ([NPPES downloads page](https://download.cms.gov/nppes/NPI_Files.html)) | C3, C5, C6 |
+| `Data/NPPES Deactivated NPI Report 20261012.xlsx` | 5.4 MB | [NPPES deactivated NPI report zip](https://download.cms.gov/nppes/NPPES_Deactivated_NPI_Report_101226_V2.zip) | C3, C5 |
+| `Data/DAC_NationalDownloadableFile.csv` | ~900 MB | [CMS Doctors and Clinicians national file (dataset mj5m-pzi6)](https://data.cms.gov/provider-data/dataset/mj5m-pzi6) | C3, C5 |
+| `Data/nucc_taxonomy_261.csv` | 520 KB | [NUCC provider taxonomy v26.1 CSV](https://nucc.org/images/stories/CSV/nucc_taxonomy_261.csv) ([NUCC CSV page](https://www.nucc.org/index.php/code-sets-mainmenu-41/provider-taxonomy-mainmenu-40/csv-mainmenu-57)) | C5, C6 |
+| `Data/cms_ref/rvu26d/` | zip | [Medicare PFS RVU26D](https://www.cms.gov/files/zip/rvu26d-updated-08-26-2026.zip) ([PFS relative value files](https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files)) | C3, C7 |
+| `Data/cms_ref/hcpcs_2026_10/` | zip | [HCPCS October 2026 alpha-numeric file](https://www.cms.gov/files/zip/october-2026-alpha-numeric-hcpcs-file.zip) ([HCPCS quarterly update](https://www.cms.gov/medicare/coding-billing/healthcare-common-procedure-system/quarterly-update)) | C3 |
+| `Data/rate_files/*.json` | 700 MB (Health Net CA) and more | Links listed by C1 in `output/c1/c1_rate_files.csv`, e.g. [Health Net CA in-network file](https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-09-30_centene-management-company-llc_healthnet-ca_in-network.json) ([Centene price transparency](https://www.centene.com/price-transparency-files.html)); downloaded by `pipeline/download_rate_files.py` | C2b, C3 |
+
+Optional C5 state sources (used when present): [California DCA licensee bulk files](https://www.dca.ca.gov/consumers/public_info/index.shtml) into `data/state_sources/dca/`, and [CDPH healthcare facility locations](https://data.chhs.ca.gov/dataset/healthcare-facility-locations) into `data/state_sources/cdph/health_facility_locations.csv`.
+
+Free services called at run time: [US Census Geocoder](https://geocoding.geo.census.gov/geocoder/Geocoding_Services_API.html) (C5, C7) and Gemini (C5, needs `GEMINI_API_KEY`; skipped with `--offline`).
+
+## Run step by step
+
+`run_pipeline.py` runs exactly these commands. All paths default to locations relative to the repo root; every script prints `--help`. Run the steps in this order.
 
 ```bash
 python pipeline/c1_parse_index.py
@@ -191,6 +239,14 @@ python pipeline/c7_cost_effectiveness.py
 ```
 
 Writes `output/c7/c7_geocode.parquet`, `c7_address_geo.parquet`, `c7_price_ratios.parquet` (each price with its peer group, level and ratios), `c7_npi_cost.parquet` / `.csv` and `c7_tin_cost.parquet` / `.csv` (cost index and label), and `c7_summary.json`. `reference/peer_specialty.csv` maps specialties to peer groups.
+
+Final file (one row per price with TIN, NPI, specialty, address, billing code, rate, and the provider's cost-effectiveness score and label):
+
+```bash
+python pipeline/c7_final_output.py
+```
+
+Writes `output/c7/c7_final.csv` and `.xlsx`.
 
 Optional check of the specialty table with a small embedding model (downloads `BAAI/bge-small-en-v1.5` on first use):
 

@@ -2,7 +2,7 @@
 """download_c5_data.py – Download every data file required for the C5 stage.
 
 Run this ONCE from the provider_rates_data_pipeline/ directory before running
-the pipeline. All files are placed under ../Data/ (relative to this script),
+the pipeline. All files are placed under Data/ (next to this script),
 which is the path the pipeline expects.
 
 Usage:
@@ -51,7 +51,7 @@ from typing import Optional
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent.resolve()
-DATA_DIR   = SCRIPT_DIR.parent / "Data"
+DATA_DIR   = SCRIPT_DIR / "Data"
 NPPES_DIR  = DATA_DIR / "NPPES_Data_Dissemination_October_2026_V2"
 RATE_DIR   = DATA_DIR / "rate_files"
 CACHE_DIR  = DATA_DIR / ".download_cache"
@@ -75,6 +75,9 @@ CMS_DAC_CSV_URL = (
 NUCC_TAXONOMY_URL = (
     "https://nucc.org/images/stories/CSV/nucc_taxonomy_261.csv"
 )
+# CMS reference files for C3 (Medicare PFS RVU26D and the HCPCS alpha-numeric list)
+CMS_RVU_ZIP_URL   = "https://www.cms.gov/files/zip/rvu26d-updated-08-26-2026.zip"
+CMS_HCPCS_ZIP_URL = "https://www.cms.gov/files/zip/october-2026-alpha-numeric-hcpcs-file.zip"
 # Centene rate files (C2b, C3, C4 – also needed if running full pipeline)
 HEALTHNET_RATE_URL = (
     "https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/"
@@ -326,6 +329,19 @@ def download_nucc(force: bool) -> bool:
     return ok
 
 
+def download_cms_ref(force: bool) -> bool:
+    """CMS PFS RVU26D and HCPCS ZIPs -> Data/cms_ref/rvu26d/ and Data/cms_ref/hcpcs_2026_10/ (C3)."""
+    ok = True
+    for url, sub in [(CMS_RVU_ZIP_URL, "rvu26d"), (CMS_HCPCS_ZIP_URL, "hcpcs_2026_10")]:
+        dest = DATA_DIR / "cms_ref" / sub
+        if not force and dest.exists() and any(dest.iterdir()):
+            log(f"cms_ref/{sub} already present", prefix="✓")
+            continue
+        print(f"\n  ── CMS reference: {sub} ──")
+        ok = download_zip_and_extract(url, dest, f"CMS {sub}") and ok
+    return ok
+
+
 def download_rates(force: bool) -> bool:
     """Centene Health Net CA and Ambetter CA rate files (needed for full pipeline)."""
     hn_path,  hn_desc,  hn_min  = FILES["healthnet_rate"]
@@ -402,6 +418,7 @@ GROUP_FUNCS = {
     "deact": download_deact,
     "dac":   download_dac,
     "nucc":  download_nucc,
+    "cms_ref": download_cms_ref,
     "rates": download_rates,
 }
 

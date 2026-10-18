@@ -16,7 +16,7 @@ CMS HCPCS October 2026, CMS PFS RVU26D (October 2026 release), CMS Doctors and C
 The two CMS zip files are unzipped into Data/cms_ref/rvu26d/ and Data/cms_ref/hcpcs_2026_10/:
   https://www.cms.gov/files/zip/rvu26d-updated-08-26-2026.zip
   https://www.cms.gov/files/zip/october-2026-alpha-numeric-hcpcs-file.zip
-The Doctors and Clinicians file is expected at Data/c5_truth/DAC_NationalDownloadableFile.csv.
+The Doctors and Clinicians file is expected at Data/DAC_NationalDownloadableFile.csv (or Data/c5_truth/).
 
 Order: c3_reference.py -> rate_scan.py -> c3_metrics.py -> c3_index_metrics.py
 (rate_scan.py and c3_metrics.py also need output/c1/c1_rate_files.csv from C1, and every rate file in
@@ -135,7 +135,8 @@ def build_pfs(con, out):
 def build_provider_states(con, out):
     """All practice states per NPI from three sources. NPPES addresses are often stale, so I11 prefers the
     Medicare file (independent, refreshed monthly) and uses NPPES only for providers it does not cover."""
-    dac = glob.glob(os.path.join(DATA, "c5_truth", "DAC_NationalDownloadableFile.csv"))[0]
+    dac = (glob.glob(os.path.join(DATA, "c5_truth", "DAC_NationalDownloadableFile.csv"))
+           + glob.glob(os.path.join(DATA, "DAC_NationalDownloadableFile.csv")))[0]
     pl = glob.glob(os.path.join(DATA, "NPPES_Data_Dissemination_*", "pl_pfile_*[0-9].csv"))[0]
     con.execute(f"""create table ps as
         select distinct try_cast("NPI" as bigint) npi, upper(trim("State")) state, 'dac' src
