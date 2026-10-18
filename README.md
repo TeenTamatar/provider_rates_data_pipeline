@@ -73,6 +73,10 @@ python pipeline/c2b_step5_parallel_copies.py
 ```
 
 ```bash
+python pipeline/c2b_export_kept.py
+```
+
+```bash
 python pipeline/c2b_step6_ppo_rates.py
 ```
 
@@ -123,6 +127,7 @@ python pipeline/run_c5.py --estimate --dry-run
 | C2b step 3: price table, capitation | `output/c1/c1_plans_ca.csv`, shared scan | `output/c2b/c2b_prices.parquet`, `c2b_step3_capitation_groups.csv` |
 | C2b step 4: contract dates, parallel copies | steps 1 and 3 (`--run-date`, default today) | `output/c2b/c2b_step4_copy_cases.parquet` |
 | C2b step 5: parallel-contract test per TIN–NPI | steps 1–3 | `output/c2b/c2b_step5_price_keys.parquet`, `c2b_step5_pair_key_copies.parquet`, `c2b_step5_group_copy_stats.csv` |
+| Export: data remaining after step 4 | steps 1–5 | `output/c2b/c2b_step4_kept_prices.csv` / `.parquet` |
 | C2b step 6: final PPO rates (closes C2b) | steps 1–5 | `output/c2b/c2b_ppo_rates.parquet` / `.csv`, `c2b_step6_dropped.csv` |
 | C2 final: plan class and evidence | C2 step sheets | `output/c2/c2_plan_network.csv` |
 | C3 rate-file metrics M1–M27 | scan, reference tables | `output/c3/c3_rate_file_metrics.csv`, `c3_rate_file_scores.csv`, `c3_rate_file_rollup.csv` |
@@ -166,6 +171,32 @@ Kept in the team's working copy, not on this branch:
 | `experiments/network_inference/` | Test: inferring network type when plan names don't say it (see `RESULTS.md`) |
 | `experiments/centene_pd/` | Centene FHIR directory coverage test (blocked, HTTP 403) |
 | `.github/workflows/` | Manually triggered coverage-test workflow |
+
+C6 (provider rate file; needs the C4 and C5 outputs in `output/c4/` and `output/c5/`, plus NPPES and the HiLabs workbook in `Data/`):
+
+```bash
+python pipeline/c6_provider_rate_file.py
+```
+
+Writes `output/c6/c6_provider_rates.parquet` and `.csv` (full file), `c6_provider_rates_excel_view.xlsx` (HiLabs codes only), side tables for alternative rates and addresses, and `c6_summary.json`.
+
+C7 (cost-effectiveness; needs the C5 addresses, the C6 file and the C3 reference tables; the geocoder calls the free Census batch service):
+
+```bash
+python pipeline/c7_geocode.py
+```
+
+```bash
+python pipeline/c7_cost_effectiveness.py
+```
+
+Writes `output/c7/c7_geocode.parquet`, `c7_address_geo.parquet`, `c7_price_ratios.parquet` (each price with its peer group, level and ratios), `c7_npi_cost.parquet` / `.csv` and `c7_tin_cost.parquet` / `.csv` (cost index and label), and `c7_summary.json`. `reference/peer_specialty.csv` maps specialties to peer groups.
+
+Optional check of the specialty table with a small embedding model (downloads `BAAI/bge-small-en-v1.5` on first use):
+
+```bash
+python pipeline/c7_specialty_suggest.py
+```
 
 ## C5: TIN/NPI → Practice Address Pipeline
 

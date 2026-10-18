@@ -1,4 +1,4 @@
-# Single requirements file for the whole pipeline (C1-C5).
+# Single requirements file for the whole pipeline (C1-C7).
 # Merged from: main (C1-C3), C1-2, c5, backup/private-main and main's working copy.
 # Python 3.12.
 
@@ -33,3 +33,7 @@ tqdm==4.67.1
 python-dotenv==1.0.1
 pyyaml>=6.0
 pytest>=8.0.0
+
+# C7: specialty table check (embedding model)
+scikit-learn==1.5.2
+sentence-transformers==6.1.0
