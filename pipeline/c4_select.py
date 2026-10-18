@@ -5,9 +5,9 @@ Rules are applied as a funnel; each rule only looks at keys that still hold
 more than one distinct rate. Every dropped row is kept in an alternatives
 table with a reason. Counts go to c4_summary.json for the logic file.
 
-Terminal:  python c4_select.py
-           python c4_select.py --kept output/c2b/c2b_ppo_rates.parquet --out-dir outputs/c4
-Notebook:  main(["--kept", "output/c2b/c2b_ppo_rates.parquet", "--out-dir", "outputs/c4"])
+Terminal:  python pipeline/c4_select.py
+           python pipeline/c4_select.py --kept output/c2b/c2b_ppo_rates.parquet --out-dir output/c4
+Notebook:  main(["--kept", "output/c2b/c2b_ppo_rates.parquet", "--out-dir", "output/c4"])
 """
 import argparse
 import json
@@ -15,7 +15,9 @@ from pathlib import Path
 
 import duckdb
 
-DEFAULT_KEPT = Path(__file__).resolve().parent / "output" / "c2b" / "c2b_ppo_rates.parquet"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_KEPT = PROJECT_ROOT / "output" / "c2b" / "c2b_ppo_rates.parquet"
+DEFAULT_OUT = PROJECT_ROOT / "output" / "c4"
 
 KEY = "tin, npi, billing_code_type, billing_code, addl_key"
 
@@ -56,7 +58,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--kept", default=str(DEFAULT_KEPT),
                     help="C2b step 6 output (default: output/c2b/c2b_ppo_rates.parquet)")
-    ap.add_argument("--out-dir", default="outputs/c4")
+    ap.add_argument("--out-dir", default=str(DEFAULT_OUT), help="default: output/c4")
     args = ap.parse_args(argv)
 
     kept = sql_path(args.kept)

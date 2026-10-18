@@ -97,13 +97,13 @@ geocode_benchmark: Public_AR_Current  # Census benchmark name
 # ── Paths ─────────────────────────────────────────────────────────────────────
 paths:
   # Inputs
-  targets:        handoff/data/rate_file_providers.csv
+  targets:        output/c2b/c2b_ppo_rates.parquet   # TIN-NPI pairs from C2b step 6
   nppes_main:     Data/NPPES_Data_Dissemination_October_2026_V2/npidata_pfile_20050523-20261011.csv
-  nppes_pl:     Data/NPPES_Data_Dissemination_October_2026_V2/pl_pfile_20050523-20261011.csv
-  nppes_ep:     Data/NPPES_Data_Dissemination_October_2026_V2/endpoint_pfile_20050523-20261011.csv
-  nppes_deact:     Data/NPPES Deactivated NPI Report 20261012.xlsx
-  cms_dac:     Data/DAC_NationalDownloadableFile.csv
-  nucc_taxonomy:     Data/nucc_taxonomy_261.csv
+  nppes_pl:       Data/NPPES_Data_Dissemination_October_2026_V2/pl_pfile_20050523-20261011.csv
+  nppes_ep:       Data/NPPES_Data_Dissemination_October_2026_V2/endpoint_pfile_20050523-20261011.csv
+  nppes_deact:    Data/NPPES Deactivated NPI Report 20261012.xlsx
+  cms_dac:        Data/DAC_NationalDownloadableFile.csv
+  nucc_taxonomy:  Data/nucc_taxonomy_261.csv
 
   # Intermediate (Parquet)
   c5_targets:     output/c5/c5_targets.parquet

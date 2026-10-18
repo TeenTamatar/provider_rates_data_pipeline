@@ -1,18 +1,171 @@
-# provider_rates_data_pipeline
+# Centene PPO provider rates pipeline
 
-Pipeline stages merged on this branch:
+HiLabs hackathon: build a provider-level PPO rate file for Centene California (NPI × TIN × billing code × address × specialty × rate) from Centene's price transparency files.
 
-| Stage | Code | Notes |
-|-------|------|-------|
-| C1–C3 | `pipeline/c1_*.py`, `pipeline/c2*_*.py`, `pipeline/c3_*.py`, `pipeline/rate_scan.py` | Index parsing, PPO plan classification, PPO rates, quality scoring |
-| C4 | `c4_select.py`, `main.ipynb` | One rate per provider key from the C2b step 6 rate table (`output/c2b/c2b_ppo_rates.parquet`); outputs in `outputs/c4/` |
-| C5 | `pipeline/run_c5.py`, `pipeline/c5/` | TIN/NPI → practice address (guide below) |
+**Team guides start in [`handoff/`](handoff/README.md).** Rules and their reasons: [`LOGIC.md`](LOGIC.md). Findings F1–F32: [`handoff/FINDINGS.md`](handoff/FINDINGS.md). (These live in the team's working copy and are not on this branch.)
+
+| Stage | Code | Output |
+|---|---|---|
+| C1 parse index files | `pipeline/c1_*.py` | `output/c1/` |
+| C2 find the PPO network, C2b PPO prices | `pipeline/c2_*.py`, `pipeline/c2b_*.py`, `pipeline/rate_scan.py` | `output/c2/`, `output/c2b/`, `output/scan/` |
+| C3 file quality metrics | `pipeline/c3_*.py` | `output/c3/`, `deliverables/` |
+| C4 one rate per provider key | `pipeline/c4_select.py` | `output/c4/` |
+| C5 TIN/NPI → practice address | `pipeline/run_c5.py`, `pipeline/c5/` | `output/c5/` |
+
+## Setup
+
+Python 3.12.
+
+```bash
+pip install -r requirements.txt
+```
+
+Large inputs are not in git. Put them under `Data/` in your checkout (paths and download links: [`handoff/DATA_SOURCES.md`](handoff/DATA_SOURCES.md); C5's NPPES and CMS files: [Data sources required](#data-sources-required)).
+
+C5 also needs a `.env` with `GEMINI_API_KEY` (copy `.env.example`); see [C5 quick start](#quick-start).
+
+## Run
+
+All paths default to locations relative to the repo root; every script prints `--help`. Run the steps in this order.
+
+```bash
+python pipeline/c1_parse_index.py
+```
+
+```bash
+python pipeline/c2_step1_ppo_names.py
+```
+
+```bash
+python pipeline/c2_step2_other_network_names.py
+```
+
+```bash
+python pipeline/c2_step3_unlabelled_names.py
+```
+
+```bash
+python pipeline/c3_reference.py
+```
+
+```bash
+python pipeline/rate_scan.py --run-date 2026-10-18
+```
+
+```bash
+python pipeline/c2b_step1_groups.py
+```
+
+```bash
+python pipeline/c2b_step2_name_labels.py
+```
+
+```bash
+python pipeline/c2b_step3_capitation.py
+```
+
+```bash
+python pipeline/c2b_step4_contract_dates.py
+```
+
+```bash
+python pipeline/c2b_step5_parallel_copies.py
+```
+
+```bash
+python pipeline/c2b_step6_ppo_rates.py
+```
+
+```bash
+python pipeline/c2_final_plans.py
+```
+
+C3 (file quality, all index and rate files; needs every rate file in `Data/rate_files/`, see `pipeline/download_rate_files.py`, and the CMS reference files unzipped into `Data/cms_ref/rvu26d/` and `Data/cms_ref/hcpcs_2026_10/` from https://www.cms.gov/files/zip/rvu26d-updated-08-26-2026.zip and https://www.cms.gov/files/zip/october-2026-alpha-numeric-hcpcs-file.zip):
+
+```bash
+python pipeline/c3_metrics.py --run-date 2026-10-18
+```
+
+```bash
+python pipeline/c3_index_metrics.py --run-date 2026-10-18
+```
+
+```bash
+python pipeline/c3_diagnose.py
+```
+
+```bash
+python pipeline/c3_report.py
+```
+
+C4 (reads the C2b step 6 output):
+
+```bash
+python pipeline/c4_select.py
+```
+
+C5 (reads the C2b step 6 output; offline run shown, full options in [C5](#c5-tinnpi--practice-address-pipeline)):
+
+```bash
+python pipeline/run_c5.py --estimate --dry-run
+```
+
+| Step | Reads | Writes |
+|---|---|---|
+| C1 parse index files | `Data/*_index.json` | `output/c1/` (`c1_plans.csv`, `c1_plans_ca.csv`, `c1_rate_files.csv`, …) |
+| C2 step 1: PPO in the name | `output/c1/c1_plans_ca.csv` | `output/c2/c2_step1_ppo_name_plans.csv` |
+| C2 step 2: other network word or plan code | `output/c1/c1_plans_ca.csv`, `reference/network_codes.csv` | `output/c2/c2_step2_other_network_name_plans.csv` |
+| C2 step 3: no network signal | same | `output/c2/c2_step3_unlabelled_name_plans.csv` |
+| C3 reference tables | NPPES, deactivation report, HiLabs workbook, `Data/cms_ref/` (PFS RVU26D, HCPCS), CMS Doctors and Clinicians | `output/c3/ref/*.parquet` |
+| Shared scan (each rate file read once; C2b and C3 read it) | `output/c1/c1_rate_files.csv`, `Data/rate_files/` (`.json` or `.json.gz`) or the URLs with `--stream` | `output/scan/<file>_{members,groups,prices,refs}.parquet`, `<file>_stats.json` |
+| C2b step 1: provider group tables | `output/c1/c1_plans_ca.csv`, shared scan | `output/c2b/c2b_groups.parquet`, `c2b_group_summary.parquet` |
+| C2b step 2: business-name markers | step 1, `reference/business_name_labels.csv` | `output/c2b/c2b_step2_member_labels.csv`, `c2b_step2_group_name_labels.csv`, `c2b_step2_name_patterns.csv` |
+| C2b step 3: price table, capitation | `output/c1/c1_plans_ca.csv`, shared scan | `output/c2b/c2b_prices.parquet`, `c2b_step3_capitation_groups.csv` |
+| C2b step 4: contract dates, parallel copies | steps 1 and 3 (`--run-date`, default today) | `output/c2b/c2b_step4_copy_cases.parquet` |
+| C2b step 5: parallel-contract test per TIN–NPI | steps 1–3 | `output/c2b/c2b_step5_price_keys.parquet`, `c2b_step5_pair_key_copies.parquet`, `c2b_step5_group_copy_stats.csv` |
+| C2b step 6: final PPO rates (closes C2b) | steps 1–5 | `output/c2b/c2b_ppo_rates.parquet` / `.csv`, `c2b_step6_dropped.csv` |
+| C2 final: plan class and evidence | C2 step sheets | `output/c2/c2_plan_network.csv` |
+| C3 rate-file metrics M1–M27 | scan, reference tables | `output/c3/c3_rate_file_metrics.csv`, `c3_rate_file_scores.csv`, `c3_rate_file_rollup.csv` |
+| C3 index metrics I1–I15, dataset scores | `Data/*_index.json`, rate-file scores, scan, reference tables | `output/c3/c3_index_metrics.csv`, `c3_index_scores.csv`, `c3_dataset_scores.csv` |
+| C3 diagnosis: problems ranked by severity, with fixes | all C3 outputs | `output/c3/c3_diagnosis.md`, `c3_diagnosis.csv` |
+| Deliverable 3: file quality metrics | all C3 outputs | `deliverables/03_file_quality_metrics.md`, `03_file_quality_scores.xlsx` |
+| C4 rate selection: one rate per TIN × NPI × code × additional information | `output/c2b/c2b_ppo_rates.parquet` | `output/c4/c4_chosen.parquet`, `c4_alternatives.parquet`, `c4_dropped_nonpositive.parquet`, `c4_key_audit.csv`, `c4_summary.json` |
+| C5 address mapping (WP0–WP9) | `output/c2b/c2b_ppo_rates.parquet`, NPPES, CMS DAC | `output/c5/` (see [Outputs](#outputs-outputc5)) |
+
+C2 steps run on all states with `--plans output/c1/c1_plans.csv`.
+
+Run `python pipeline/c3_reference.py` (reference tables; its HCPCS list is used by the scan) and then `python pipeline/rate_scan.py` after C1 and before C2b: it reads every rate file once and C2b steps 1 and 3 and C3 use its tables. Other target networks: `--network HMO` on `c2_final_plans.py` and C2b steps 2, 5 and 6, with `--out`/`--dir output/c2b_hmo` (PPO is the default and keeps every current file name).
 
 ## C4: rate selection
 
-```bash
-python c4_select.py
-```
+`pipeline/c4_select.py` keeps one rate per key (TIN × NPI × billing code type × billing code × additional information). Rules run as a funnel, each only on keys that still have more than one distinct rate: network label, modifier (whole service first), place of service (office first), majority contract (rate carried by the most provider groups), then lowest rate (flagged `conflict_unresolved`). Every row not chosen goes to `c4_alternatives.parquet` with a reason. Parallel contracts are already dropped by C2b step 6; the majority-contract rule stays as a second check.
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `pipeline/` | Pipeline steps (C1–C4 scripts, `run_c5.py`) |
+| `pipeline/c5/` | C5 work packages WP0–WP9 |
+| `config/c5.yaml` | C5 thresholds, weights and paths |
+| `prompts/` | C5 Gemini extraction prompts |
+| `tests/` | C5 unit tests (`pytest`) |
+| `reference/network_codes.csv` | Brand-specific plan codes (Health Net EOA, SAL) with sources |
+| `reference/business_name_labels.csv` | Network markers in TIN business names (C2b step 2) |
+| `experiments/state_sources_trial/` | C5 trial of state licensing and facility sources |
+| `download_c5_data.py` | Downloads C5's NPPES and CMS inputs |
+
+Kept in the team's working copy, not on this branch:
+
+| Path | Contents |
+|---|---|
+| `LOGIC.md` | Logic deliverable: scope, assumptions, rules with reasons, results |
+| `handoff/` | Team guides, data sources, findings, shared data snapshots |
+| `handoff/test_set_C5/` | C5 test set: 707 TIN–NPI pairs with independent truth addresses, scorer, NPPES baseline (see `RESULTS.md`) |
+| `docs/diagrams/` | Plan diagrams (SVG) |
+| `docs/FUTURE_WORK.md` | Deferred work (e.g. resolving parallel contracts) with what is known and how to pick it up |
+| `experiments/network_inference/` | Test: inferring network type when plan names don't say it (see `RESULTS.md`) |
+| `experiments/centene_pd/` | Centene FHIR directory coverage test (blocked, HTTP 403) |
+| `.github/workflows/` | Manually triggered coverage-test workflow |
 
 ## C5: TIN/NPI → Practice Address Pipeline
 
@@ -97,7 +250,7 @@ Missing placeholders skip template generation without errors. Search-based disco
 | Step | Code | Description |
 |------|------|-------------|
 | WP0 | `wp0_readiness.py` | Environment check, file verification, source manifest (`c5_sources_manifest.json`), 5-NPI probe |
-| WP1 | `wp1_targets.py` | Load target TIN-NPI population reconciled against C2b step 6 (`c2b_ppo_rates`), resolve entity types, deactivation check |
+| WP1 | `wp1_targets.py` | Load the target TIN-NPI pairs from C2b step 6 (`c2b_ppo_rates`), resolve entity types, deactivation check |
 | WP2 | `wp2_claims.py` | Extract evidence claims (NPPES primary + secondary + endpoints = `nppes_self`; CMS DAC = `medicare`) |
 | WP3 | `wp3_sites.py` | USPS address normalization, Census batch geocoding, persistent disk cache |
 | WP4 | `wp4_tin_sites.py` | Build validated TIN site sets (org NPI support, provider consensus, Medicare group overlap) |
@@ -138,7 +291,7 @@ Missing placeholders skip template generation without errors. Search-based disco
 
 ### Data sources required
 
-Place these under `../Data/` (relative to `provider_rates_data_pipeline/`):
+Place these under `Data/` in the repo root:
 
 | File | Size | Source |
 |------|------|--------|
@@ -148,7 +301,7 @@ Place these under `../Data/` (relative to `provider_rates_data_pipeline/`):
 | `NPPES Deactivated NPI Report 20261012.xlsx` | 5.4 MB | Provided by organizers |
 | `DAC_NationalDownloadableFile.csv` | ~500 MB | [data.cms.gov dataset mj5m-pzi6](https://data.cms.gov/provider-data/dataset/mj5m-pzi6) |
 
-Target list is read from `../hilabs-provider-rates/handoff/data/rate_file_providers.csv`.
+Target TIN–NPI pairs are read from the C2b step 6 output `output/c2b/c2b_ppo_rates.parquet` (`paths.targets` in `config/c5.yaml`).
 
 ### Module layout
 

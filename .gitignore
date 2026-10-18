@@ -24,14 +24,16 @@ rate_files/
 *.zip
 *.tmp
 
-# Generated outputs (C1-C3, C5 write to output/; C4 writes to outputs/c4/)
+# Generated outputs (every stage writes to output/)
 /output/
-/outputs/
 *.parquet
 
 # Symlinks to other repos / handoff
 /hilabs-provider-rates
 /handoff
+
+# Exploratory notebook (C4 scratch work, kept local)
+/main.ipynb
 
 # Logs & OS files
 *.log

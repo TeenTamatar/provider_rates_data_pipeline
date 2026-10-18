@@ -198,7 +198,10 @@ def run_wp0(cfg: dict) -> dict:
     # Probe 5 NPIs
     targets_path = cfg["paths"]["targets"]
     if os.path.isfile(targets_path):
-        df = pd.read_csv(targets_path)
+        if str(targets_path).endswith(".parquet"):
+            df = pd.read_parquet(targets_path, columns=["rate_file", "npi"])
+        else:
+            df = pd.read_csv(targets_path)
         df = df[df["rate_file"] == cfg["target_rate_file"]]
         sample_npis = [fmt_npi(n) for n in df["npi"].unique()[:_PROBE_COUNT]]
         log.info(f"Probing NPIs: {sample_npis}")

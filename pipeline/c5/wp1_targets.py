@@ -93,7 +93,10 @@ def run_wp1(cfg: dict) -> pd.DataFrame:
     rate_file    = cfg["target_rate_file"]
 
     # --- Load raw rows ---
-    raw = pd.read_csv(str(targets_path), dtype=str)
+    if str(targets_path).endswith(".parquet"):
+        raw = pd.read_parquet(str(targets_path), columns=["rate_file", "tin", "npi", "business_name"]).astype(str)
+    else:
+        raw = pd.read_csv(str(targets_path), dtype=str)
     raw = raw[raw["rate_file"] == rate_file].copy()
 
     # Standardise identifiers
