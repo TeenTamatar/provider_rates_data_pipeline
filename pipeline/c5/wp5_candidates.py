@@ -66,6 +66,7 @@ def run_wp5(
     w_geo = float(weights.get("w_geocode", 0.05))
     w_cnty = float(weights.get("w_county", 0.05))
     w_state = float(weights.get("w_in_state", 0.05))
+    w_solo_nppes = float(weights.get("w_solo_nppes", 0.15))
 
     fresh_months = float(cfg.get("fresh_months", 24))
     small_tin_max = int(cfg.get("small_tin_max_npis", 10))
@@ -187,6 +188,20 @@ def run_wp5(
             site_state = str(site_info.get("state", "")).upper()
             is_in_state = 1.0 if site_state == target_state else 0.0
 
+            # Solo practitioner primary NPPES baseline weight
+            # Slightly increases primary NPPES weight for solo practitioners so easy cases aren't
+            # displaced unless the alternative source has multiple independent corroborations (>= 2 families).
+            is_solo = (t_size <= 2) or (t_size <= small_tin_max and str(tgt.get("entity_type", "")).lower() == "individual")
+            has_primary_nppes = bool(
+                not site_claims.empty and
+                (
+                    (site_claims["source"] == "nppes_primary").any() or
+                    (site_claims["source"] == "nppes_registry_live").any() or
+                    ((site_claims["source_family"] == "nppes_self") & (site_claims.get("claim_type", "") == "primary")).any()
+                )
+            )
+            s_solo_nppes = w_solo_nppes if (is_solo and has_primary_nppes) else 0.0
+
             # Feature contributions
             s_families = min(n_families / max(verified_families_min, 1.0), 1.0) * w_fam
             s_tin_fit = is_tin_fit * w_tin
@@ -195,7 +210,7 @@ def run_wp5(
             s_county = county_match * w_cnty
             s_in_state = is_in_state * w_state
 
-            total_score = s_families + s_tin_fit + s_freshness + s_geocode + s_county + s_in_state
+            total_score = s_families + s_tin_fit + s_freshness + s_geocode + s_county + s_in_state + s_solo_nppes
 
             # Distance to nearest TIN site
             min_dist_km = float("nan")

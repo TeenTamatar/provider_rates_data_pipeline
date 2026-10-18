@@ -68,7 +68,7 @@ def run_pipeline(
     targets = run_wp1(cfg)
 
     # WP2: Claims Table
-    claims = run_wp2(cfg, targets)
+    claims, state_stats = run_wp2(cfg, targets)
 
     # WP3: Sites & Geocoding
     claims_with_sites, sites = run_wp3(cfg, claims, dry_run=dry_run)
@@ -80,7 +80,7 @@ def run_pipeline(
     candidates = run_wp5(cfg, targets, claims_with_sites, sites, tin_sites)
 
     # WP6: Stale Checks, Selection, Labelling
-    stale_claims, addresses = run_wp6(cfg, targets, claims_with_sites, candidates)
+    stale_claims, addresses = run_wp6(cfg, targets, claims_with_sites, candidates, state_stats=state_stats)
 
     # WP7: Leftovers Queue & Tiered Extraction (Probe, T0, T1, T2)
     leftovers, addresses, candidates, lookup_stats = run_wp7(
@@ -92,7 +92,7 @@ def run_pipeline(
     sample = generate_calibration_sample(cfg, targets, addresses, n_samples=200)
 
     # WP9: Summary Report
-    summary = run_wp9(cfg, targets, claims_with_sites, sites, stale_claims, addresses, leftovers, lookup_stats=lookup_stats)
+    summary = run_wp9(cfg, targets, claims_with_sites, sites, stale_claims, addresses, leftovers, lookup_stats=lookup_stats, state_stats=state_stats)
 
     elapsed = round(time.time() - t0, 2)
     log.info("=" * 60)

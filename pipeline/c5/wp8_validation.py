@@ -4,6 +4,7 @@ Produces a stratified sample of ~200 TIN-NPI pairs across:
 - entity_type: individual vs organization
 - tin_size: small (<=10) vs large (>10)
 - label: verified, probable, unverified
+- source_stratum: dca_supported, cdph_supported, bulk_only
 
 Provides precision calculation helpers for calibration and evaluation.
 """
@@ -31,20 +32,39 @@ def generate_calibration_sample(
     seed = int(cfg.get("random_seed", 42))
     small_tin_max = int(cfg.get("small_tin_max_npis", 10))
 
-    # Join targets with addresses
+    # Join targets with addresses safely without colliding columns
     tin_sizes = targets.groupby("tin")["npi"].nunique().rename("tin_size")
-    merged = addresses.merge(
-        targets[["tin", "npi", "entity_type", "business_name"]].drop_duplicates(),
-        on=["tin", "npi"],
-        how="left",
-    ).merge(tin_sizes, on="tin", how="left")
+    target_cols = [c for c in ["entity_type", "business_name"] if c not in addresses.columns]
+    if target_cols:
+        merged = addresses.merge(
+            targets[["tin", "npi"] + target_cols].drop_duplicates(),
+            on=["tin", "npi"],
+            how="left",
+        )
+    else:
+        merged = addresses.copy()
+    merged = merged.merge(tin_sizes, on="tin", how="left")
+    merged["entity_type"] = merged["entity_type"].fillna("unknown")
 
     merged["size_category"] = merged["tin_size"].apply(
         lambda s: "small" if s <= small_tin_max else "large"
     )
 
-    # Strata definition: (entity_type, size_category, label)
-    strata_groups = merged.groupby(["entity_type", "size_category", "label"])
+    # Assign source stratum: dca_supported (individuals with state_license in source_list),
+    # cdph_supported (organizations with state_facility in source_list), else bulk_only.
+    def _source_stratum(row: pd.Series) -> str:
+        sl = str(row.get("source_list") or "")
+        entity = str(row.get("entity_type") or "")
+        if entity == "individual" and "state_license" in sl:
+            return "dca_supported"
+        if entity == "organization" and "state_facility" in sl:
+            return "cdph_supported"
+        return "bulk_only"
+
+    merged["source_stratum"] = merged.apply(_source_stratum, axis=1)
+
+    # Strata definition: (entity_type, size_category, label, source_stratum)
+    strata_groups = merged.groupby(["entity_type", "size_category", "label", "source_stratum"])
     n_groups = len(strata_groups)
     per_group = max(1, n_samples // max(n_groups, 1))
 
@@ -66,7 +86,7 @@ def generate_calibration_sample(
     df_sample["notes"] = ""
 
     cols = [
-        "tin", "npi", "entity_type", "size_category", "tin_size",
+        "tin", "npi", "entity_type", "size_category", "tin_size", "source_stratum",
         "label", "score", "address_line", "unit", "city", "state", "zip5",
         "n_independent_families", "source_list",
         "checked_address", "checked_source_url", "correct", "notes",
@@ -77,6 +97,11 @@ def generate_calibration_sample(
     Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(out_csv, index=False)
     log.info(f"c5_calibration_sample written: {len(out_df):,} rows → {out_csv}")
+
+    # Log stratum breakdown
+    stratum_counts = out_df["source_stratum"].value_counts().to_dict() if "source_stratum" in out_df.columns else {}
+    log.info(f"  Calibration sample strata: {stratum_counts}")
+
     log.info("WP8 DONE")
     return out_df
 
