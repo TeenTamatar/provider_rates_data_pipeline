@@ -1,6 +1,6 @@
 # Centene PPO provider rates pipeline
 
-HiLabs hackathon. The pipeline reads Centene's price transparency files and builds a provider-level PPO rate file for California commercial group plans: one row per **NPI × TIN × billing code × practice address × specialty × rate**, with a quality score for every source file and a cost-effectiveness score for every provider.
+The pipeline reads Centene's price transparency files and builds a provider-level PPO rate file for California commercial group plans: one row per **NPI × TIN × billing code × practice address × specialty × rate**, with a quality score for every source file and a cost-effectiveness score for every provider.
 
 This document explains what each stage does and how. The rules behind every decision, with their reasons, are in [`LOGIC.md`](LOGIC.md) (also as `LOGIC.pdf`). The numbers of the latest run are in `output/RUN_SUMMARY.md`.
 
